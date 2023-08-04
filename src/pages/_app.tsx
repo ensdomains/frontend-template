@@ -7,6 +7,8 @@ import type { AppProps } from 'next/app'
 
 import '@/styles/globals.css'
 import { chains, wagmiConfig } from '@/providers'
+import { DefaultSeo } from 'next-seo'
+import SEO from '../next-seo.config'
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
@@ -14,6 +16,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <ThemeProvider theme={lightTheme}>
         <ThorinGlobalStyles />
         <RainbowKitProvider chains={chains}>
+          <DefaultSeo {...SEO} />
           <Component {...pageProps} />
         </RainbowKitProvider>
       </ThemeProvider>
