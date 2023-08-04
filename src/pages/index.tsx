@@ -14,22 +14,34 @@ export default function Home() {
         <header />
 
         {/* Main content */}
-        <Container as="main" $variant="flexVerticalCenter">
+        <Container as="main" $variant="flexVerticalCenter" $width="large">
           <SvgWrapper>
             <EnsSVG />
           </SvgWrapper>
 
           <Heading level="1">ENS Frontend Examples</Heading>
 
-          <Card title="Name/Address Input">
-            <Typography color="textSecondary">
-              Every address input should also accept ENS names.
-            </Typography>
+          <ExamplesGrid>
+            <Card title="Name/Address Input">
+              <Typography color="textSecondary">
+                Every address input should also accept ENS names.
+              </Typography>
 
-            <Button as="a" href="/input">
-              View
-            </Button>
-          </Card>
+              <Button as="a" href="/input">
+                View
+              </Button>
+            </Card>
+
+            <Card title="ENS Profile">
+              <Typography color="textSecondary">
+                Show the primary and avatar for an ENS name.
+              </Typography>
+
+              <Button as="a" href="/profile">
+                View
+              </Button>
+            </Card>
+          </ExamplesGrid>
         </Container>
 
         {/* Placeholder for the footer */}
@@ -49,5 +61,14 @@ const SvgWrapper = styled.div(
       width: 100%;
       height: 100%;
     }
+  `
+)
+
+const ExamplesGrid = styled.div(
+  ({ theme }) => css`
+    width: 100%;
+    display: grid;
+    gap: ${theme.space['4']};
+    grid-template-columns: repeat(auto-fit, minmax(${theme.space['64']}, 1fr));
   `
 )
