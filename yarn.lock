@@ -1120,7 +1120,7 @@
   resolved "https://registry.yarnpkg.com/@emotion/unitless/-/unitless-0.8.1.tgz#182b5a4704ef8ad91bde93f7a860a88fd92c79a3"
   integrity sha512-KOEGMu6dmJZtpadb476IsZBclKvILjopjUii3V+7MnXIQCYh8W3NgNcgwo21n9LXZX6EDIKvqfjYxXebDwxKmQ==
 
-"@ensdomains/thorin@^0.6.40":
+"@ensdomains/thorin@^0.6.42":
   version "0.6.42"
   resolved "https://registry.yarnpkg.com/@ensdomains/thorin/-/thorin-0.6.42.tgz#dacb1ee7e53ea05545095660194b7baf0b7ad6da"
   integrity sha512-1tCh52DWIowgarjFl2EO34ajNnD2RTm25nAKx7i2rCxXjji+GoVKQ8hRuZbokxtrbVO6ycJ29c4SkR4do8Xc3Q==
