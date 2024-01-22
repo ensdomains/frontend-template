@@ -1,10 +1,10 @@
 'use client'
 
 import { Button, Card, Input, Spinner } from '@ensdomains/thorin'
-import { isAddress } from 'viem/utils'
-import { useDebounce } from 'usehooks-ts'
-import { useEnsAddress } from 'wagmi'
 import { useState } from 'react'
+import { useDebounce } from 'usehooks-ts'
+import { isAddress } from 'viem/utils'
+import { useEnsAddress } from 'wagmi'
 
 import { Container, Layout } from '@/components/templates'
 
@@ -23,8 +23,8 @@ export default function Page() {
     input !== debouncedInput
       ? undefined
       : isAddress(debouncedInput)
-      ? debouncedInput
-      : ensAddress
+        ? debouncedInput
+        : ensAddress
 
   return (
     <Layout>

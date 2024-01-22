@@ -1,5 +1,5 @@
-import { createConfig, http } from 'wagmi'
 import { getDefaultWallets } from '@rainbow-me/rainbowkit'
+import { createConfig, http } from 'wagmi'
 import { mainnet } from 'wagmi/chains'
 
 const WALLETCONNECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_ID

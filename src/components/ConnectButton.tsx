@@ -1,7 +1,7 @@
 import { Button, Profile, mq } from '@ensdomains/thorin'
 import { ConnectButton as ConnectButtonBase } from '@rainbow-me/rainbowkit'
-import { useDisconnect } from 'wagmi'
 import styled, { css } from 'styled-components'
+import { useDisconnect } from 'wagmi'
 
 const StyledButton = styled(Button)`
   ${({ theme }) => css`

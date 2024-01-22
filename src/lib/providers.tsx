@@ -1,14 +1,14 @@
 'use client'
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { RainbowKitProvider } from '@rainbow-me/rainbowkit'
-import { ThemeProvider } from 'styled-components'
 import { ThorinGlobalStyles, lightTheme } from '@ensdomains/thorin'
+import { RainbowKitProvider } from '@rainbow-me/rainbowkit'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { ThemeProvider } from 'styled-components'
 import { WagmiProvider } from 'wagmi'
 
-import { wagmiConfig } from '@/lib/web3'
 import StyledComponentsRegistry from '@/lib/sc-registry'
+import { wagmiConfig } from '@/lib/web3'
 
 const queryClient = new QueryClient()
 
