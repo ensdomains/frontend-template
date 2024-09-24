@@ -4,8 +4,11 @@ import { Button, Card, EnsSVG, Heading, Typography } from '@ensdomains/thorin'
 import styled, { css } from 'styled-components'
 
 import { Container, Layout } from '@/components/templates'
+import { useMakeCommit } from '@/hooks/useMakeCommit'
 
 export default function Home() {
+  const test = useMakeCommit()
+
   return (
     <Layout>
       <header />

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ensdomains/ensjs": "^4.0.1-alpha.0",
     "@ensdomains/thorin": "^0.6.50",
     "@rainbow-me/rainbowkit": "^2.1.1",
     "@tanstack/query-core": "^5.36.1",
@@ -30,6 +31,6 @@
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.1.0",
     "prettier": "^3.2.4",
-    "typescript": "^5.3.3"
+    "typescript": "^5.6.2"
   }
 }
