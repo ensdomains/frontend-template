@@ -1,7 +1,7 @@
 // This is a temporary solution until we deploy the new ReverseRegistrar to mainnet
 // https://github.com/ensdomains/ens-contracts/pull/379
 import { useQuery } from '@tanstack/react-query'
-import { Hex, parseAbi } from 'viem'
+import { Hex, namehash, parseAbi } from 'viem'
 import {
   arbitrumSepolia,
   base,
@@ -50,8 +50,14 @@ type Props = {
   l2ChainId?: L2ChainId
 }
 
-function convertEVMChainIdToCoinType(chainId: number) {
+const evmChainIdToCoinType = (chainId: number) => {
   return (0x80000000 | chainId) >>> 0
+}
+
+const getReverseNodeHash = (address: Hex, chainId: number) => {
+  const reverseNamespace = `${evmChainIdToCoinType(chainId).toString(16)}.reverse`
+  const reverseNode = `${address.toLowerCase().slice(2)}.${reverseNamespace}`
+  return namehash(reverseNode)
 }
 
 export function useL2Name({ address, l1ChainId, l2ChainId }: Props) {
@@ -89,15 +95,8 @@ export function useL2Name({ address, l1ChainId, l2ChainId }: Props) {
         throw new Error('Unsupported chain')
       }
 
+      const node = getReverseNodeHash(address, chainId)
       const l2ReverseResolver = l2ReverseResolverDeployments.get(chainId)!
-
-      // TODO: do this in javascript
-      const node = await client.readContract({
-        address: l2ReverseResolver,
-        abi: l2ReverseResolverAbi,
-        functionName: 'node',
-        args: [address],
-      })
 
       const reverseName = await client.readContract({
         address: l2ReverseResolver,
@@ -108,7 +107,7 @@ export function useL2Name({ address, l1ChainId, l2ChainId }: Props) {
 
       const forwardAddr = await l1Client.getEnsAddress({
         name: reverseName,
-        coinType: convertEVMChainIdToCoinType(chainId),
+        coinType: evmChainIdToCoinType(chainId),
       })
 
       if (forwardAddr?.toLowerCase() === address.toLowerCase()) {
