@@ -1,7 +1,7 @@
 import { Button, Profile, mq } from '@ensdomains/thorin'
 import { ConnectButton as ConnectButtonBase } from '@rainbow-me/rainbowkit'
 import styled, { css } from 'styled-components'
-import { useDisconnect } from 'wagmi'
+import { useDisconnect, useEnsName, useEnsAvatar } from 'wagmi'
 
 const StyledButton = styled(Button)`
   ${({ theme }) => css`
@@ -28,7 +28,12 @@ export function ConnectButton() {
       }) => {
         const ready = mounted
         const connected = ready && account && chain
-
+        
+       
+        const { data: ensName } = useEnsName({
+          address: account?.address as `0x${string}`,
+        })
+        
         return (
           <div
             {...(!ready && {
@@ -62,24 +67,32 @@ export function ConnectButton() {
               }
 
               return (
-                <Profile
-                  address={account.address}
-                  ensName={account.ensName || undefined}
-                  avatar={account.ensAvatar || undefined}
-                  onClick={openAccountModal}
-                  dropdownItems={[
-                    {
-                      label: 'Copy Address',
-                      color: 'text',
-                      onClick: () => copyToClipBoard(account.address),
-                    },
-                    {
-                      label: 'Disconnect',
-                      color: 'red',
-                      onClick: () => disconnect(),
-                    },
-                  ]}
-                />
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <StyledButton 
+                    shape="rounded" 
+                    onClick={openChainModal}
+                    size="small"
+                  >
+                    {chain.name || 'Network'}
+                  </StyledButton>
+                  <Profile
+                    address={account.address}
+                    ensName={ensName || undefined}
+                    onClick={openAccountModal}
+                    dropdownItems={[
+                      {
+                        label: 'Copy Address',
+                        color: 'text',
+                        onClick: () => copyToClipBoard(account.address),
+                      },
+                      {
+                        label: 'Disconnect',
+                        color: 'red',
+                        onClick: () => disconnect(),
+                      },
+                    ]}
+                  />
+                </div>
               )
             })()}
           </div>
