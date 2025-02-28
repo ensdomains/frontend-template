@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useAccount, useWalletClient } from 'wagmi';
-import { formatEther, parseEther } from 'viem';
 import { 
   checkNameAvailability, 
   getRentPrice,
@@ -9,7 +8,7 @@ import {
 import { ETH_REGISTRAR_CONTROLLER_ADDRESS, BURN_ADDRESS } from '@/lib/constants';
 import { ethRegistrarControllerAbi } from '@/lib/abis/eth-registrar-controller.abi';
 
-// Registration steps
+
 export enum RegistrationStep {
   InputName,
   CheckingAvailability,
@@ -19,7 +18,6 @@ export enum RegistrationStep {
   Success
 }
 
-// Local storage keys
 const COMMITMENT_KEY = 'ens_commitment';
 const SECRET_KEY = 'ens_secret';
 const NAME_KEY = 'ens_name';
@@ -129,7 +127,7 @@ export function useEthRegistrar() {
         setCurrentStep(RegistrationStep.InputName);
       } else {
         const price = await getRentPrice(name, duration);
-        const priceWithBuffer = (price.base + price.premium) * 110n / 100n;
+        const priceWithBuffer = (price.base + price.premium) * BigInt(110) / BigInt(100);
         setRentPriceWei(priceWithBuffer);
         
         setCurrentStep(RegistrationStep.MakeCommitment);
@@ -259,6 +257,16 @@ export function useEthRegistrar() {
     setIsAvailable(null);
     setError('');
     setCurrentStep(RegistrationStep.InputName);
+    
+    // Clear all localStorage items
+    localStorage.removeItem(COMMITMENT_KEY);
+    localStorage.removeItem(SECRET_KEY);
+    localStorage.removeItem(NAME_KEY);
+    localStorage.removeItem(COMMIT_TIMESTAMP_KEY);
+    localStorage.removeItem(RENT_PRICE_KEY);
+    localStorage.removeItem(DURATION_KEY);
+    localStorage.removeItem('ens_commit_tx_hash');
+    localStorage.removeItem('ens_register_tx_hash');
   };
 
   return {

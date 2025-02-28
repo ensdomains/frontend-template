@@ -72,6 +72,7 @@ export function ConnectButton() {
                     shape="rounded" 
                     onClick={openChainModal}
                     size="small"
+
                   >
                     {chain.name || 'Network'}
                   </StyledButton>

@@ -11,14 +11,15 @@ const NavbarContainer = styled.nav`
 `
 
 const AppTitle = styled.div`
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: bold;
 `
 
 export function Navbar() {
   return (
     <NavbarContainer>
-      <AppTitle>ENS Registration</AppTitle>
+      <AppTitle>ENS REG</AppTitle>
+    
       <ConnectButton />
     </NavbarContainer>
   )

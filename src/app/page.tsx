@@ -9,13 +9,14 @@ export default function Page() {
     <Layout>
       <Navbar />
 
-      <Container className="container" as="main" $variant="flexVerticalCenter">
+      <Container className="container" as="main" $variant="flexVerticalCenter" style={{ padding: '2rem' }}>
         <h1>ENS Name Registration</h1>
-        <p>Register your own .eth domain name</p>
         <ENSRegistration />
       </Container>
 
-      <footer />
+      <footer>
+        <p>Made with ❤️ by <a href="https://github.com/f1lander">Edax</a></p>
+      </footer>
     </Layout>
   )
 }

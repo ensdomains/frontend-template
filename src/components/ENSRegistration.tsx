@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { formatEther } from 'viem'
 import { 
   Button, 
@@ -16,44 +16,38 @@ import {
 } from '@ensdomains/thorin'
 import { Alert } from '@/components/ui/alert'
 import { ProgressBar } from '@/components/ui/ProgressBar'
+import { Stepper } from '@/components/ui/Stepper'
 import { useEthRegistrar, RegistrationStep } from '@/hooks/useEthRegistrar'
-import styled from 'styled-components'
+import { Section } from '@/components/ui/Section'
+import { ButtonsContainer } from '@/components/ui/ButtonsContainer'
+import { HashDisplay } from '@/components/ui/HashDisplay'
 import { useAccount } from 'wagmi'
-import { CHAIN_ID } from '@/lib/constants'
+import { getEtherscanUrl } from '@/lib/utils'
 import Link from 'next/link'
+import { 
+  Search, 
+  CheckCircle, 
+  Clock, 
+  ArrowRight, 
+  RefreshCw, 
+  RotateCcw,
+  ExternalLink
+} from 'lucide-react'
+import { ENS_FACTS, STEP_LABELS } from '@/lib/constants';
 
-const Section = styled.div`
-  margin-bottom: 1.5rem;
-`
-
-const HashDisplay = styled.div`
-  background-color: #f8fafc;
-  border-radius: 8px;
-  padding: 12px;
-  font-family: monospace;
-  font-size: 14px;
-  word-break: break-all;
-  margin-top: 8px;
-`
-
-// Helper function to get Etherscan URL based on network
-const getEtherscanUrl = (hash: string, type: 'tx' | 'address') => {
-  const baseUrl = CHAIN_ID === 1 
-    ? 'https://etherscan.io' 
-    : 'https://sepolia.etherscan.io';
-  
-  return `${baseUrl}/${type}/${hash}`;
+const getRandomENSFact = (seed: number) => {
+  return ENS_FACTS[seed % ENS_FACTS.length];
 };
 
 const ENSRegistration = () => {
-  const { address } = useAccount()
+  const { chainId } = useAccount()
+  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
 
   const {
     name,
     setName,
     duration,
     setDuration,
-    isAvailable,
     isLoading,
     error,
     currentStep,
@@ -70,8 +64,29 @@ const ENSRegistration = () => {
     registerTxHash
   } = useEthRegistrar();
 
-  console.log("rentPriceWei", rentPriceWei)
-  
+  useEffect(() => {
+    const newCompletedSteps: number[] = [];
+    
+    // Mark all previous steps as completed
+    for (let i = 0; i < currentStep; i++) {
+      newCompletedSteps.push(i);
+    }
+    
+    // Special case: if we're at the Register step, mark the Wait step as completed
+    if (currentStep === RegistrationStep.Register) {
+      newCompletedSteps.push(RegistrationStep.WaitForCommitment);
+    }
+    
+    // Special case: if we're at the Success step, mark all steps as completed
+    if (currentStep === RegistrationStep.Success) {
+      for (let i = 0; i < STEP_LABELS.length; i++) {
+        newCompletedSteps.push(i);
+      }
+    }
+    
+    setCompletedSteps(newCompletedSteps);
+  }, [currentStep]);
+
   useEffect(() => {
     loadSavedData();
   }, []);
@@ -92,7 +107,6 @@ const ENSRegistration = () => {
           <>
             <Section>
               <Heading level="2">Enter your desired ENS name</Heading>
-           
             </Section>
             
             <Section>
@@ -128,6 +142,7 @@ const ENSRegistration = () => {
               disabled={isLoading || !name}
               loading={isLoading}
               colorStyle="accentPrimary"
+              prefix={<Search size={18} />}
             >
               {isLoading ? 'Checking...' : 'Check Availability'}
             </Button>
@@ -149,7 +164,7 @@ const ENSRegistration = () => {
           <>
             <Section>
               <Heading level="2">{name}.eth is available!</Heading>
-              <Typography>You can begin the registration process now</Typography>
+              <Typography style={{ marginTop: '0.5rem', textAlign: 'center' }}>You can begin the registration process now</Typography>
             </Section>
             
             <Section>
@@ -158,14 +173,26 @@ const ENSRegistration = () => {
               </Tag>
             </Section>
             
-            <Button
-              onClick={makeCommitment}
-              disabled={isLoading || !name}
-              loading={isLoading}
-              colorStyle="accentPrimary"
-            >
-              {isLoading ? 'Processing...' : 'Begin Registration'}
-            </Button>
+            <ButtonsContainer>
+              <Button
+                onClick={makeCommitment}
+                disabled={isLoading || !name}
+                loading={isLoading}
+                colorStyle="accentPrimary"
+                prefix={<ArrowRight size={18} />}
+              >
+                {isLoading ? 'Processing...' : 'Begin Registration'}
+              </Button>
+              
+              <Button
+                onClick={resetForm}
+                disabled={isLoading}
+                colorStyle="greyPrimary"
+                prefix={<RotateCcw size={18} />}
+              >
+                Start Over
+              </Button>
+            </ButtonsContainer>
           </>
         );
       
@@ -174,7 +201,31 @@ const ENSRegistration = () => {
           <>
             <Section>
               <Heading level="2">Waiting for commitment period</Heading>
-              <Typography>To prevent front-running, we need to wait for 60 seconds</Typography>
+              <Typography>
+                To prevent front-running, we need to wait for 60 seconds before completing your registration.
+              </Typography>
+            </Section>
+            
+            <Section>
+              <Typography fontVariant="small" style={{ marginBottom: '1rem' }}>
+                <strong>Why the wait?</strong> This waiting period is a security measure that protects your registration from being intercepted by others.
+              </Typography>
+              
+              <ProgressBar value={(60 - remainingTime) / 60} />
+              <Typography style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                <Clock size={16} style={{ marginRight: '4px' }} />
+                Time remaining: {remainingTime} seconds
+              </Typography>
+            </Section>
+            
+      
+            <Section style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
+              <Typography fontVariant="headingThree" style={{ marginBottom: '8px' }}>
+                Did you know?
+              </Typography>
+              <Typography>
+                {getRandomENSFact(Math.floor(remainingTime / 10))}
+              </Typography>
             </Section>
             
             {commitment && (
@@ -187,18 +238,37 @@ const ENSRegistration = () => {
             {commitTxHash && (
               <Section>
                 <Typography fontVariant="smallBold">Transaction:</Typography>
-                <Link href={getEtherscanUrl(commitTxHash, 'tx')} target="_blank">
-                  View on Etherscan
+                <Link href={getEtherscanUrl(commitTxHash, 'tx', chainId)} target="_blank">
+                  <Button 
+                    as="a" 
+                    colorStyle="accentPrimary"
+                    size="small"
+                    prefix={<ExternalLink size={16} />}
+                  >
+                    View on Etherscan
+                  </Button>
                 </Link>
               </Section>
             )}
             
-            <Section>
-              <ProgressBar value={(60 - remainingTime) / 60} />
-              <Typography style={{ marginTop: '0.5rem' }}>
-                Time remaining: {remainingTime} seconds
-              </Typography>
-            </Section>
+            <ButtonsContainer>
+              <Button
+                onClick={() => window.open('https://ens.domains', '_blank')}
+                colorStyle="accentSecondary"
+                prefix={<ExternalLink size={18} />}
+              >
+                Learn More About ENS
+              </Button>
+              
+              <Button
+                onClick={resetForm}
+                disabled={isLoading}
+                colorStyle="greyPrimary"
+                prefix={<RotateCcw size={18} />}
+              >
+                Start Over
+              </Button>
+            </ButtonsContainer>
           </>
         );
       
@@ -220,8 +290,15 @@ const ENSRegistration = () => {
             {commitTxHash && (
               <Section>
                 <Typography fontVariant="smallBold">Commitment Transaction:</Typography>
-                <Link href={getEtherscanUrl(commitTxHash, 'tx')} target="_blank">
-                  View on Etherscan
+                <Link href={getEtherscanUrl(commitTxHash, 'tx', chainId)} target="_blank">
+                  <Button 
+                    as="a" 
+                    colorStyle="accentPrimary"
+                    size="small"
+                    prefix={<ExternalLink size={16} />}
+                  >
+                    View on Etherscan
+                  </Button>
                 </Link>
               </Section>
             )}
@@ -232,14 +309,26 @@ const ENSRegistration = () => {
               </Tag>
             </Section>
             
-            <Button
-              onClick={registerName}
-              disabled={isLoading || !name}
-              loading={isLoading}
-              colorStyle="accentPrimary"
-            >
-              {isLoading ? 'Processing...' : 'Register Now'}
-            </Button>
+            <ButtonsContainer>
+              <Button
+                onClick={registerName}
+                disabled={isLoading || !name}
+                loading={isLoading}
+                colorStyle="accentPrimary"
+                prefix={<CheckCircle size={18} />}
+              >
+                {isLoading ? 'Processing...' : 'Register Now'}
+              </Button>
+              
+              <Button
+                onClick={resetForm}
+                disabled={isLoading}
+                colorStyle="greyPrimary"
+                prefix={<RotateCcw size={18} />}
+              >
+                Start Over
+              </Button>
+            </ButtonsContainer>
           </>
         );
       
@@ -257,13 +346,24 @@ const ENSRegistration = () => {
             {registerTxHash && (
               <Section style={{ textAlign: 'center' }}>
                 <Typography fontVariant="smallBold">Registration Transaction:</Typography>
-                <Link href={getEtherscanUrl(registerTxHash, 'tx')} target="_blank">
-                  View on Etherscan
+                <Link href={getEtherscanUrl(registerTxHash, 'tx', chainId)} target="_blank">
+                  <Button 
+                    as="a" 
+                    colorStyle="accentPrimary"
+                    size="small"
+                    prefix={<ExternalLink size={16} />}
+                  >
+                    View on Etherscan
+                  </Button>
                 </Link>
               </Section>
             )}
             
-            <Button onClick={resetForm} colorStyle="accentPrimary">
+            <Button
+              onClick={resetForm}
+              colorStyle="accentPrimary"
+              prefix={<RefreshCw size={18} />}
+            >
               Register Another Name
             </Button>
           </>
@@ -276,6 +376,15 @@ const ENSRegistration = () => {
       {error && (
         <Alert variant="error" title="Error" description={error} />
       )}
+      
+      {isConnected && currentStep !== RegistrationStep.CheckingAvailability && (
+        <Stepper 
+          steps={STEP_LABELS} 
+          currentStep={currentStep} 
+          completedSteps={completedSteps} 
+        />
+      )}
+      
       {renderStep()}
     </Card>
   );
