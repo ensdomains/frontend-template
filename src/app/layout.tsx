@@ -2,6 +2,7 @@ import '@rainbow-me/rainbowkit/styles.css'
 import { Metadata } from 'next'
 
 import { ClientProviders } from '@/lib/providers'
+import { Link } from '@mui/material'
 
 export const metadata: Metadata = {
   title: 'ENS Frontend Template',
@@ -17,6 +18,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <ClientProviders>{children}</ClientProviders>
+      
       </body>
     </html>
   )

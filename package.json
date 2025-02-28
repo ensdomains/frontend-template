@@ -10,16 +10,26 @@
   },
   "dependencies": {
     "@ensdomains/thorin": "^0.6.50",
+    "@radix-ui/react-label": "^2.1.2",
+    "@radix-ui/react-progress": "^1.1.2",
+    "@radix-ui/react-select": "^2.1.6",
+    "@radix-ui/react-slot": "^1.1.2",
     "@rainbow-me/rainbowkit": "^2.1.7",
+    "@tailwindcss/postcss": "^4.0.9",
     "@tanstack/query-core": "^5.59.0",
     "@tanstack/react-query": "^5.59.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv-flow": "^4.1.0",
+    "lucide-react": "^0.477.0",
     "next": "^14.2.14",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-transition-state": "1.1.5",
     "styled-components": "^6.1.11",
+    "tailwind-merge": "^3.0.2",
     "usehooks-ts": "^2.9.5",
-    "viem": "^2.21.17",
+    "viem": "^2.23.5",
     "wagmi": "^2.12.16"
   },
   "devDependencies": {
@@ -27,9 +37,12 @@
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.20",
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.1.0",
+    "postcss": "^8.5.3",
     "prettier": "^3.2.4",
+    "tailwindcss": "^4.0.9",
     "typescript": "^5.3.3"
   }
 }
