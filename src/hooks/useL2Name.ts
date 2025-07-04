@@ -1,22 +1,16 @@
-// This is a temporary solution until this functionality is built into web3 libraries
+// This is a temporary solution until we deploy the new ReverseRegistrar to mainnet
+// https://github.com/ensdomains/ens-contracts/pull/379
 import { useQuery } from '@tanstack/react-query'
-import {
-  ByteArray,
-  Hex,
-  bytesToString,
-  encodeFunctionData,
-  hexToString,
-  labelhash,
-  namehash,
-  parseAbi,
-  stringToBytes,
-  toHex,
-} from 'viem'
+import { Hex, namehash, parseAbi } from 'viem'
 import {
   arbitrumSepolia,
+  base,
   baseSepolia,
+  holesky,
   lineaSepolia,
+  mainnet,
   optimismSepolia,
+  scroll,
   scrollSepolia,
   sepolia,
 } from 'viem/chains'
@@ -24,10 +18,27 @@ import { useChainId, usePublicClient } from 'wagmi'
 
 import { wagmiConfig } from '@/lib/web3'
 
-const l1ChainIds = [sepolia.id] as const
+const l2ReverseResolverDeployments = new Map<number, Hex>([
+  [arbitrumSepolia.id, '0x74E20Bd2A1fE0cdbe45b9A1d89cb7e0a45b36376'],
+  [base.id, '0x0D3b4af7f0f89C67163e5A301Ba1b37A16C968f1'],
+  [baseSepolia.id, '0xa12159e5131b1eEf6B4857EEE3e1954744b5033A'],
+  [lineaSepolia.id, '0x74E20Bd2A1fE0cdbe45b9A1d89cb7e0a45b36376'],
+  [optimismSepolia.id, '0x74E20Bd2A1fE0cdbe45b9A1d89cb7e0a45b36376'],
+  [scroll.id, '0x0d3b4af7f0f89c67163e5a301ba1b37a16c968f1'],
+  [scrollSepolia.id, '0xc0497E381f536Be9ce14B0dD3817cBcAe57d2F62'],
+])
+
+// https://github.com/ensdomains/ens-contracts/blob/feature/simplify-reverse-resolver/deployments/base/L2ReverseResolver.json
+const l2ReverseResolverAbi = parseAbi([
+  'function node(address) view returns (bytes32)',
+  'function name(bytes32) view returns (string)',
+])
+
+const l1ChainIds = [mainnet.id, sepolia.id, holesky.id] as const
+type L1ChainId = (typeof l1ChainIds)[number]
 
 // prettier-ignore
-const l2ChainIds = [arbitrumSepolia.id, baseSepolia.id, lineaSepolia.id, optimismSepolia.id, scrollSepolia.id]
+const l2ChainIds = [arbitrumSepolia.id, base.id, baseSepolia.id, lineaSepolia.id, optimismSepolia.id, scroll.id, scrollSepolia.id]
 type L2ChainId = (typeof l2ChainIds)[number]
 
 const wagmiConfigChainIds = wagmiConfig.chains.map((chain) => chain.id)
@@ -35,161 +46,75 @@ type WagmiConfigChainId = (typeof wagmiConfigChainIds)[number]
 
 type Props = {
   address: Hex
-  l2ChainId: L2ChainId
+  l1ChainId?: L1ChainId
+  l2ChainId?: L2ChainId
 }
 
 const evmChainIdToCoinType = (chainId: number) => {
   return (0x80000000 | chainId) >>> 0
 }
 
-const getReverseNamespace = (chainId: number) =>
-  `${evmChainIdToCoinType(chainId).toString(16)}.reverse`
-
-const getReverseNode = (address: Hex, chainId: number) => {
-  const reverseNamespace = getReverseNamespace(chainId)
-  return `${address.toLowerCase().slice(2)}.${reverseNamespace}`
-}
-
 const getReverseNodeHash = (address: Hex, chainId: number) => {
-  const reverseNode = getReverseNode(address, chainId)
+  const reverseNamespace = `${evmChainIdToCoinType(chainId).toString(16)}.reverse`
+  const reverseNode = `${address.toLowerCase().slice(2)}.${reverseNamespace}`
   return namehash(reverseNode)
 }
 
-export function useL2Name({ address, l2ChainId }: Props) {
+export function useL2Name({ address, l1ChainId, l2ChainId }: Props) {
   const connectedChainId = useChainId() as WagmiConfigChainId
   const chainId = l2ChainId ?? connectedChainId
-  const l1ChainId = sepolia.id
 
   if (!wagmiConfigChainIds.includes(chainId as any)) {
     throw new Error('Unsupported chain')
   }
 
-  if (!wagmiConfigChainIds.includes(l1ChainId as any)) {
-    throw new Error('Add L1 Sepolia to your wagmi config')
-  }
-
-  if (l1ChainIds.includes(chainId as any)) {
+  if (l1ChainIds.includes(l2ChainId as any)) {
     throw new Error("Use wagmi's native `useEnsName` hook for L1")
   }
 
+  if (!wagmiConfigChainIds.includes(l1ChainId as any)) {
+    throw new Error('Add mainnet or sepolia to your wagmi config')
+  }
+
+  const client = usePublicClient({
+    config: wagmiConfig,
+    chainId: chainId as WagmiConfigChainId,
+  })
+
   const l1Client = usePublicClient({
     config: wagmiConfig,
-    chainId: l1ChainId,
+    chainId: (l1ChainId ?? 1) as WagmiConfigChainId,
   })
 
   return useQuery({
     queryKey: ['l2-name', chainId, address],
     queryFn: async () => {
-      if (!l1Client) {
-        throw new Error('Missing client')
+      const isSupportedChain = l2ReverseResolverDeployments.has(chainId)
+
+      if (!isSupportedChain || !client) {
+        throw new Error('Unsupported chain')
       }
 
-      const l1ReverseResolver = await l1Client.readContract({
-        address: '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e',
-        abi: parseAbi([
-          'function resolver(bytes32 node) external view returns (address)',
-        ]),
-        functionName: 'resolver',
-        args: [namehash(getReverseNamespace(chainId))],
-      })
+      const node = getReverseNodeHash(address, chainId)
+      const l2ReverseResolver = l2ReverseResolverDeployments.get(chainId)!
 
-      if (l1ReverseResolver === '0x0000000000000000000000000000000000000000') {
-        throw new Error('L1 Reverse Resolver not deployed for this chain')
-      }
-
-      // Encode the name lookup to be used in the `resolve()` call
-      const encodedNameCall = encodeFunctionData({
-        abi: parseAbi([
-          'function name(bytes32 node) pure returns (string memory)',
-        ]),
+      const reverseName = await client.readContract({
+        address: l2ReverseResolver,
+        abi: l2ReverseResolverAbi,
         functionName: 'name',
-        args: [getReverseNodeHash(address, chainId)],
+        args: [node],
       })
-
-      const reverseName = await l1Client.readContract({
-        address: l1ReverseResolver,
-        abi: parseAbi(['function resolve(bytes, bytes) view returns (bytes)']),
-        functionName: 'resolve',
-        args: [
-          toHex(packetToBytes(getReverseNode(address, chainId))),
-          encodedNameCall,
-        ],
-      })
-
-      const reverseNameFormatted = hexToString(reverseName)
-        .replace(/[\x01-\x20]/g, '')
-        .replace(/\0/g, '')
 
       const forwardAddr = await l1Client.getEnsAddress({
-        name: reverseNameFormatted,
-        coinType: evmChainIdToCoinType(chainId),
-      })
-
-      console.log({
-        reverseNameFormatted,
-        forwardAddr,
-        chainId,
+        name: reverseName,
         coinType: evmChainIdToCoinType(chainId),
       })
 
       if (forwardAddr?.toLowerCase() === address.toLowerCase()) {
-        return reverseNameFormatted
+        return reverseName
       }
 
       return null
     },
   })
-}
-
-function packetToBytes(packet: string): ByteArray {
-  // strip leading and trailing `.`
-  const value = packet.replace(/^\.|\.$/gm, '')
-  if (value.length === 0) return new Uint8Array(1)
-
-  const bytes = new Uint8Array(stringToBytes(value).byteLength + 2)
-
-  let offset = 0
-  const list = value.split('.')
-  for (let i = 0; i < list.length; i += 1) {
-    let encoded = stringToBytes(list[i])
-    // if the length is > 255, make the encoded label value a labelhash
-    // this is compatible with the universal resolver
-    if (encoded.byteLength > 255)
-      encoded = stringToBytes(encodeLabelhash(labelhash(list[i])))
-    bytes[offset] = encoded.length
-    bytes.set(encoded, offset + 1)
-    offset += encoded.length + 1
-  }
-
-  if (bytes.byteLength !== offset + 1) return bytes.slice(0, offset + 1)
-
-  return bytes
-}
-
-function bytesToPacket(bytes: ByteArray): string {
-  let offset = 0
-  let result = ''
-
-  while (offset < bytes.length) {
-    const len = bytes[offset]
-    if (len === 0) {
-      offset += 1
-      break
-    }
-
-    result += `${bytesToString(bytes.subarray(offset + 1, offset + len + 1))}.`
-    offset += len + 1
-  }
-
-  return result.replace(/\.$/, '')
-}
-
-function encodeLabelhash(hash: string) {
-  if (!hash.startsWith('0x'))
-    throw new Error('Expected labelhash to start with 0x')
-
-  if (hash.length !== 66)
-    throw new Error('Expected labelhash to have a length of 66')
-
-  return `[${hash.slice(2)}]`
 }

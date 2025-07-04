@@ -1,6 +1,6 @@
 import { getDefaultWallets } from '@rainbow-me/rainbowkit'
 import { createConfig, http } from 'wagmi'
-import { base, baseSepolia, mainnet, sepolia } from 'wagmi/chains'
+import { mainnet } from 'wagmi/chains'
 
 const WALLETCONNECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_ID
 
@@ -13,15 +13,12 @@ const { connectors } = getDefaultWallets({
   projectId: WALLETCONNECT_ID,
 })
 
-export const chains = [mainnet, sepolia, base, baseSepolia] as const
+const chains = [mainnet] as const
 
 export const wagmiConfig = createConfig({
   chains,
   connectors,
   transports: {
-    [mainnet.id]: http('https://eth.drpc.org'),
-    [sepolia.id]: http('https://sepolia.drpc.org'),
-    [base.id]: http('https://base.drpc.org'),
-    [baseSepolia.id]: http(),
+    [mainnet.id]: http(),
   },
 })
