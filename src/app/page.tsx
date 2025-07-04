@@ -1,68 +1,83 @@
 'use client'
 
-import { Button, Card, EnsSVG, Heading, Typography } from '@ensdomains/thorin'
-import styled, { css } from 'styled-components'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useState } from 'react'
+import { encodePacked, keccak256 } from 'viem'
+import { useSignMessage } from 'wagmi'
+import { baseSepolia } from 'wagmi/chains'
 
-import { Container, Layout } from '@/components/templates'
+import { convertEVMChainIdToCoinType } from '@/utils'
 
 export default function Home() {
+  const { signMessageAsync } = useSignMessage()
+
+  const [expiry, setExpiry] = useState(0)
+  const [signature, setSignature] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const formData = new FormData(e.target as HTMLFormElement)
+    const name = formData.get('name') as string
+    const address = formData.get('address') as `0x${string}`
+    const sigExpiry = Math.floor(Date.now() / 1000) + 60 * 60 // 1 hour from now
+
+    const contents = encodePacked(
+      ['address', 'bytes', 'string', 'address', 'uint256', 'uint256'],
+      [
+        '0xa12159e5131b1eEf6B4857EEE3e1954744b5033A', // base sepolia reverse resolver
+        '0x7f87032e', // selector of setNameForAddrWithSignature()
+        name, // name we're setting as the reverse record
+        address, // address of the account we're setting the reverse record for
+        BigInt(sigExpiry), // signature expiry
+        BigInt(convertEVMChainIdToCoinType(baseSepolia.id)), // coinType of the chain (has to match forward resolution)
+      ]
+    )
+
+    const signature = await signMessageAsync({
+      message: { raw: keccak256(contents) },
+    })
+
+    setSignature(signature)
+    setExpiry(sigExpiry)
+  }
+
   return (
-    <Layout>
-      <header />
+    <>
+      <ConnectButton />
 
-      <Container as="main" $variant="flexVerticalCenter" $width="large">
-        <SvgWrapper>
-          <EnsSVG />
-        </SvgWrapper>
+      <form onSubmit={handleSubmit} style={{ margin: '1rem 0' }}>
+        <div>
+          <label htmlFor="name">Name</label>
+          <input
+            type="text"
+            name="name"
+            id="name"
+            placeholder="gregskril.eth"
+          />
+        </div>
 
-        <Heading level="1">ENS Frontend Examples</Heading>
+        <div>
+          <label htmlFor="address">Address</label>
+          <input
+            type="text"
+            name="address"
+            id="address"
+            placeholder="0x179A..."
+          />
+        </div>
 
-        <ExamplesGrid>
-          <Card title="Name/Address Input">
-            <Typography color="textSecondary">
-              Every address input should also accept ENS names.
-            </Typography>
+        <button type="submit">Sign Message</button>
+      </form>
 
-            <Button as="a" href="/input">
-              View
-            </Button>
-          </Card>
+      <div>
+        <label>Signature</label>
+        <input type="text" disabled value={signature || ''} />
+      </div>
 
-          <Card title="ENS Profile">
-            <Typography color="textSecondary">
-              Show the primary and avatar for an ENS name.
-            </Typography>
-
-            <Button as="a" href="/profile">
-              View
-            </Button>
-          </Card>
-        </ExamplesGrid>
-      </Container>
-
-      <footer />
-    </Layout>
+      <div>
+        <label>Expiry</label>
+        <input type="text" disabled value={expiry || ''} />
+      </div>
+    </>
   )
 }
-
-const SvgWrapper = styled.div(
-  ({ theme }) => css`
-    --size: ${theme.space['16']};
-    width: var(--size);
-    height: var(--size);
-
-    svg {
-      width: 100%;
-      height: 100%;
-    }
-  `
-)
-
-const ExamplesGrid = styled.div(
-  ({ theme }) => css`
-    width: 100%;
-    display: grid;
-    gap: ${theme.space['4']};
-    grid-template-columns: repeat(auto-fit, minmax(${theme.space['64']}, 1fr));
-  `
-)
