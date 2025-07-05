@@ -1,3 +1,5 @@
+// This is the correct way to implement ENS Primary Name resolution with L2 support.
+// Caveats: propogation is slow, which can lead to a confusing UX and suboptimal DX during hackathons.
 import { type Address, parseAbi } from 'viem'
 import { holesky, mainnet, sepolia } from 'viem/chains'
 import { useReadContract } from 'wagmi'
