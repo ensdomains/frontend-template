@@ -1,5 +1,4 @@
-// This hook fakes L2 Primary Name resolution, allowing you to use it on mainnet even though
-// ENS DAO hasn't officially launched it yet.
+// This hook fakes L2 Primary Name resolution, allowing use on mainnet even though ENS DAO hasn't approved it yet.
 //
 // This is not advisable, and should only be used for testing purposes.
 import { useQuery } from '@tanstack/react-query'
