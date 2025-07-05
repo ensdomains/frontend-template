@@ -1,42 +1,48 @@
 import { type Address, parseAbi } from 'viem'
-import { mainnet as viemMainnet, sepolia as viemSepolia } from 'viem/chains'
+import { holesky, mainnet, sepolia } from 'viem/chains'
 import { useReadContract } from 'wagmi'
 
-const universalResolverAbi = parseAbi([
-  'function reverse(bytes lookupAddress, uint256 coinType) returns (string, address, address)',
-])
-
-const evmChainIdToCoinType = (chainId: number) => {
-  if (chainId === 1) return 60
-
-  return (0x80000000 | chainId) >>> 0
-}
+const l1ChainIds = [mainnet.id, sepolia.id, holesky.id] as const
+type L1ChainId = (typeof l1ChainIds)[number]
 
 export const usePrimaryName = ({
   address,
-  chainId,
-  mainnet = false,
+  l1ChainId = sepolia.id,
+  l2ChainId,
 }: {
   address?: Address
-  chainId?: number
-  mainnet?: boolean
+  l1ChainId?: L1ChainId
+  l2ChainId?: number
 }) => {
-  const chain = mainnet ? viemMainnet : viemSepolia
-  const coinType = evmChainIdToCoinType(chainId ?? 1)
-
-  const universalResolverAddress = mainnet
-    ? '0xaBd80E8a13596fEeA40Fd26fD6a24c3fe76F05fB'
-    : '0xb7B7DAdF4D42a08B3eC1d3A1079959Dfbc8CFfCC'
+  const coinType = evmChainIdToCoinType(l2ChainId ?? l1ChainId)
 
   return useReadContract({
-    address: universalResolverAddress,
-    abi: universalResolverAbi,
+    address: universalResolverAddress(l1ChainId),
+    abi: parseAbi([
+      'function reverse(bytes lookupAddress, uint256 coinType) returns (string, address, address)',
+    ]),
     functionName: 'reverse',
-    chainId: chain.id,
+    chainId: l1ChainId,
     args: [address, coinType],
     query: {
       select: (data) => (data as string[])?.[0] ?? null,
       enabled: !!address,
     },
   })
+}
+
+const evmChainIdToCoinType = (chainId: number) => {
+  if ((l1ChainIds as readonly number[]).includes(chainId)) return 60
+  return (0x80000000 | chainId) >>> 0
+}
+
+const universalResolverAddress = (l1ChainId: L1ChainId) => {
+  switch (l1ChainId) {
+    case mainnet.id:
+      return '0xaBd80E8a13596fEeA40Fd26fD6a24c3fe76F05fB'
+    case sepolia.id:
+      return '0xb7B7DAdF4D42a08B3eC1d3A1079959Dfbc8CFfCC'
+    case holesky.id:
+      return '0xE3f3174Fc2F2B17644cD2dBaC3E47Bc82AE0Cf81'
+  }
 }
