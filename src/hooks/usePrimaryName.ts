@@ -22,6 +22,12 @@ export const usePrimaryName = ({
     address: universalResolverAddress(l1ChainId),
     abi: parseAbi([
       'function reverse(bytes lookupAddress, uint256 coinType) returns (string, address, address)',
+      'error ResolverNotFound(bytes name)',
+      'error ResolverNotContract(bytes name, address resolver)',
+      'error UnsupportedResolverProfile(bytes4 selector)',
+      'error ResolverError(bytes errorData)',
+      'error ReverseAddressMismatch(string primary, bytes primaryAddress)',
+      'error HttpError(uint16 status, string message)',
     ]),
     functionName: 'reverse',
     chainId: l1ChainId,
