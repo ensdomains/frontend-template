@@ -19,8 +19,8 @@
     "react-transition-state": "1.1.5",
     "styled-components": "^6.1.11",
     "usehooks-ts": "^2.9.5",
-    "viem": "^2.21.29",
-    "wagmi": "^2.12.19"
+    "viem": "^2.31.7",
+    "wagmi": "^2.15.6"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
