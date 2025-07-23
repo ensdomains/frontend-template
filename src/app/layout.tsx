@@ -1,4 +1,3 @@
-import '@rainbow-me/rainbowkit/styles.css'
 import { Metadata } from 'next'
 
 import { ClientProviders } from '@/lib/providers'
