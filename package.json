@@ -11,13 +11,16 @@
   "dependencies": {
     "@ensdomains/thorin": "^0.6.50",
     "@rainbow-me/rainbowkit": "^2.1.7",
+    "@tailwindcss/postcss": "^4.1.11",
     "@tanstack/query-core": "^5.59.0",
     "@tanstack/react-query": "^5.59.0",
     "next": "^14.2.14",
+    "postcss": "^8.5.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-transition-state": "1.1.5",
     "styled-components": "^6.1.11",
+    "tailwindcss": "^4.1.11",
     "usehooks-ts": "^2.9.5",
     "viem": "^2.31.7",
     "wagmi": "^2.15.6"
@@ -30,6 +33,7 @@
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.1.0",
     "prettier": "^3.2.4",
+    "prettier-plugin-tailwindcss": "^0.6.14",
     "typescript": "^5.3.3"
   }
 }

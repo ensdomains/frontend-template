@@ -2,6 +2,7 @@ import '@rainbow-me/rainbowkit/styles.css'
 import { Metadata } from 'next'
 
 import { ClientProviders } from '@/lib/providers'
+import '@/style.css'
 
 export const metadata: Metadata = {
   title: 'ENS Frontend Template',
