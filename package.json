@@ -9,27 +9,23 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@ensdomains/thorin": "^0.6.50",
-    "@rainbow-me/rainbowkit": "^2.1.7",
-    "@tanstack/query-core": "^5.59.0",
-    "@tanstack/react-query": "^5.59.0",
-    "next": "^14.2.14",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-transition-state": "1.1.5",
-    "styled-components": "^6.1.11",
-    "usehooks-ts": "^2.9.5",
-    "viem": "^2.31.7",
-    "wagmi": "^2.15.6"
+    "@ensdomains/thorin": "^1.0.0-beta.28",
+    "@tanstack/react-query": "^5.83.0",
+    "next": "^15.4.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "usehooks-ts": "^3.1.1",
+    "viem": "^2.33.0",
+    "wagmi": "^2.16.0"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
-    "@types/node": "^22.7.4",
-    "@types/react": "^18.3.11",
-    "@types/react-dom": "^18.3.0",
-    "eslint": "^8.56.0",
-    "eslint-config-next": "^14.1.0",
-    "prettier": "^3.2.4",
-    "typescript": "^5.3.3"
+    "@types/node": "^22.16.5",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.30",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3"
   }
 }
