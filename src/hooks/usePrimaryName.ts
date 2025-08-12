@@ -1,5 +1,6 @@
 // This is the correct way to implement ENS Primary Name resolution with L2 support.
 // Caveats: propogation is slow, which can lead to a confusing UX and suboptimal DX during hackathons.
+// See the other files in this directory for alternative approaches.
 import { type Address, parseAbi } from 'viem'
 import { holesky, mainnet, sepolia } from 'viem/chains'
 import { useReadContract } from 'wagmi'
@@ -19,7 +20,7 @@ export const usePrimaryName = ({
   const coinType = evmChainIdToCoinType(l2ChainId ?? l1ChainId)
 
   return useReadContract({
-    address: universalResolverAddress(l1ChainId),
+    address: '0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe', // Universal Resolver
     abi: parseAbi([
       'function reverse(bytes lookupAddress, uint256 coinType) returns (string, address, address)',
       'error ResolverNotFound(bytes name)',
@@ -42,15 +43,4 @@ export const usePrimaryName = ({
 const evmChainIdToCoinType = (chainId: number) => {
   if ((l1ChainIds as readonly number[]).includes(chainId)) return 60
   return (0x80000000 | chainId) >>> 0
-}
-
-const universalResolverAddress = (l1ChainId: L1ChainId) => {
-  switch (l1ChainId) {
-    case mainnet.id:
-      return '0xaBd80E8a13596fEeA40Fd26fD6a24c3fe76F05fB'
-    case sepolia.id:
-      return '0xb7B7DAdF4D42a08B3eC1d3A1079959Dfbc8CFfCC'
-    case holesky.id:
-      return '0xE3f3174Fc2F2B17644cD2dBaC3E47Bc82AE0Cf81'
-  }
 }
