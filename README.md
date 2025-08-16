@@ -1,42 +1,69 @@
-This is a Next.js template designed to get you up and running with a new web3 project as quickly as possible.
+# React + TypeScript + Vite
 
-## Getting Started
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-Check out the [live demo](https://ens-frontend-template.vercel.app/) to see what this template looks like.
+Currently, two official plugins are available:
 
-Built with:
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-- [Next.js](https://nextjs.org/)
-- [Thorin](https://thorin.ens.domains/)
-- [Styled Components](https://styled-components.com/)
-- [Viem](https://viem.sh/)
-- [Wagmi](https://wagmi.sh/)
-- [RainbowKit](https://www.rainbowkit.com/)
+## Expanding the ESLint configuration
 
-## How to use
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-Install dependencies:
+```js
+export default tseslint.config([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-```bash
-yarn install
+      // Remove tseslint.configs.recommended and replace with this
+      ...tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      ...tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      ...tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
 
-Create a [WalletConnect account](https://cloud.walletconnect.com/sign-in) and add your Project ID to `.env.local`:
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-```bash
-cp .env.example .env.local
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
+
+export default tseslint.config([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-
-Start the development server:
-
-```bash
-yarn dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
-
-## Deploy on Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fensdomains%2Ffrontend-template&env=NEXT_PUBLIC_WALLETCONNECT_ID&envDescription=API%20Keys%20needed%20for%20the%20applicatation.)
