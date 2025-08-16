@@ -1,11 +1,13 @@
 import { Route, Routes } from 'react-router-dom'
 
-import { Home } from './screens/Home'
+import { HomeScreen } from './screens/Home'
+import { InputScreen } from './screens/Input'
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<HomeScreen />} />
+      <Route path="/input" element={<InputScreen />} />
     </Routes>
   )
 }
