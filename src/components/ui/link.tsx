@@ -18,7 +18,7 @@ function ExternalLink({ className, ...props }: React.ComponentProps<'a'>) {
 
 export function GitHubFooter({ href }: { href: string }) {
   return (
-    <div className="mt-2 text-center">
+    <div className="text-center">
       <ExternalLink href={href}>View code on GitHub</ExternalLink>
     </div>
   )

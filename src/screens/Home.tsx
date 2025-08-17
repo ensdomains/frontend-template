@@ -12,8 +12,8 @@ import { Layout } from '@/components/ui/layout'
 
 export function HomeScreen() {
   return (
-    <Layout>
-      <header className="mb-6 flex flex-col gap-2">
+    <Layout className="gap-6">
+      <header className="flex flex-col gap-2">
         <h1 className="text-4xl font-bold">ENS Frontend Examples</h1>
         <p className="text-lg">
           This is a collection of examples of how to use ENS in frontend

@@ -9,7 +9,13 @@ export function Layout({
   ...props
 }: PropsWithChildren<React.ComponentProps<'div'>>) {
   return (
-    <div className={cn('mx-auto max-w-5xl px-6 py-10', className)} {...props}>
+    <div
+      className={cn(
+        'mx-auto flex max-w-5xl flex-col gap-4 px-6 py-10',
+        className
+      )}
+      {...props}
+    >
       {children}
     </div>
   )
