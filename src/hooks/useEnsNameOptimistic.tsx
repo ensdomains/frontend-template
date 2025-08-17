@@ -15,7 +15,7 @@ type Props = {
 
 export function useEnsNameOptimistic({
   address,
-  l1ChainId = 1,
+  l1ChainId = mainnet.id,
   l2ChainId,
 }: Props) {
   const wagmiConfigChains = useChains()
