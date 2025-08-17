@@ -6,15 +6,14 @@ import { holesky, mainnet, sepolia } from 'viem/chains'
 import { useReadContract } from 'wagmi'
 
 const l1ChainIds = [mainnet.id, sepolia.id, holesky.id] as const
-type L1ChainId = (typeof l1ChainIds)[number]
 
-export const usePrimaryName = ({
+export const useEnsName = ({
   address,
-  l1ChainId = sepolia.id,
+  l1ChainId = mainnet.id,
   l2ChainId,
 }: {
-  address?: Address
-  l1ChainId?: L1ChainId
+  address: Address | undefined
+  l1ChainId?: (typeof l1ChainIds)[number]
   l2ChainId?: number
 }) => {
   const coinType = evmChainIdToCoinType(l2ChainId ?? l1ChainId)
