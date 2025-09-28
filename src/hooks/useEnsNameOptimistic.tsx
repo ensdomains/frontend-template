@@ -1,11 +1,17 @@
 // L2 Primary Names usually have a few hour propagation delay
 // This hook resolves the data instantly, provided the client has access to L1 and L2 clients
 import { useQuery } from '@tanstack/react-query'
-import { type Address, type Hex, type PublicClient, parseAbi } from 'viem'
+import {
+  type Address,
+  type Hex,
+  type PublicClient,
+  parseAbi,
+  toCoinType,
+} from 'viem'
 import { useChains, usePublicClient } from 'wagmi'
-import { holesky, mainnet, sepolia } from 'wagmi/chains'
+import { mainnet, sepolia } from 'wagmi/chains'
 
-const l1ChainIds = [mainnet.id, sepolia.id, holesky.id]
+const l1ChainIds = [mainnet.id, sepolia.id]
 
 type Props = {
   address: Hex | undefined
@@ -67,7 +73,7 @@ export function useEnsNameOptimistic({
         return l1Client.getEnsName({ address })
       } else {
         // Handle L2 namespaces
-        const reverseNamespace = `${evmChainIdToCoinType(l2ChainId).toString(16)}.reverse`
+        const reverseNamespace = `${toCoinType(l2ChainId).toString(16)}.reverse`
         const chainReverseResolver = await l1Client.getEnsResolver({
           name: reverseNamespace,
         })
@@ -113,7 +119,7 @@ async function resolveReverseName({
 
   const forwardAddr = await l1Client.getEnsAddress({
     name: reverseName,
-    coinType: evmChainIdToCoinType(l2ChainId),
+    coinType: toCoinType(l2ChainId),
   })
 
   if (forwardAddr?.toLowerCase() === address.toLowerCase()) {
@@ -121,8 +127,4 @@ async function resolveReverseName({
   }
 
   return null
-}
-
-const evmChainIdToCoinType = (chainId: number) => {
-  return (0x80000000 | chainId) >>> 0
 }
