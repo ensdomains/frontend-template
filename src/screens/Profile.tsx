@@ -106,7 +106,7 @@ export function ProfileScreen() {
         </CardContent>
       </Card>
 
-      <GitHubFooter href="https://github.com/ensdomains/frontend-template/blob/main/src/screens/Input.tsx" />
+      <GitHubFooter href="https://github.com/ensdomains/frontend-template/blob/main/src/screens/Profile.tsx" />
     </Layout>
   )
 }
@@ -163,7 +163,7 @@ function Profile({
         </figure>
         <div className="flex flex-col gap-0.5 leading-none">
           <span className="font-semibold">
-            {name || isLoading ? 'Loading...' : 'No name'}
+            {isLoading ? 'Loading...' : name || 'No name'}
           </span>
 
           <span className={cn('text-grey text-xs')}>
