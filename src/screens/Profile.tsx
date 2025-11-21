@@ -120,7 +120,7 @@ function Row({
   l2Chain: Chain
   address: Address
 }) {
-  const { data: name } = useEnsNameOptimistic({
+  const { data: name, isLoading } = useEnsNameOptimistic({
     address,
     l1ChainId: l1Chain.id as (typeof l1Chains)[number]['id'],
     l2ChainId: l2Chain.id,
@@ -129,7 +129,7 @@ function Row({
   return (
     <div className="flex items-center justify-between gap-4">
       <span>{l2Chain.name}</span>
-      <Profile name={name} address={address} />
+      <Profile name={name} address={address} isLoading={isLoading} />
     </div>
   )
 }
@@ -137,9 +137,11 @@ function Row({
 function Profile({
   name,
   address,
+  isLoading,
 }: {
   name?: string | null
   address?: Address | null
+  isLoading: boolean
 }) {
   const { data: avatar } = useEnsAvatar({ name: name ?? undefined, chainId: 1 })
   const fallbackAvatar = '/img/fallback-avatar.svg'
@@ -149,7 +151,7 @@ function Profile({
       <div className="flex items-center gap-2">
         <figure className="border-grey-light h-10 w-10 overflow-hidden rounded-full border bg-gray-100">
           <img
-            src={avatar || fallbackAvatar}
+            src={isLoading ? fallbackAvatar : avatar || fallbackAvatar}
             alt="ENS Avatar"
             className="h-full w-full object-cover"
             onError={(e) => {
@@ -160,7 +162,9 @@ function Profile({
           />
         </figure>
         <div className="flex flex-col gap-0.5 leading-none">
-          <span className="font-semibold">{name || 'No name'}</span>
+          <span className="font-semibold">
+            {name || isLoading ? 'Loading...' : 'No name'}
+          </span>
 
           <span className={cn('text-grey text-xs')}>
             {truncateAddress(address || zeroAddress)}
