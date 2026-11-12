@@ -448,7 +448,7 @@ export function useRegistration(params: RegistrationParams) {
       update({ hashes: { commit: draftRef.current?.commitHash } })
       await waitForCommitment(calls.registerWrite)
     } catch (err) {
-      update({ error: getErrorMessage(err) })
+      update({ error: getErrorMessage(err), txStatus: undefined })
     } finally {
       running.current = false
     }
@@ -472,8 +472,20 @@ export function useRegistration(params: RegistrationParams) {
     try {
       const draft = draftRef.current
       if (draft?.batch) {
-        // Never send again while an earlier batch's outcome is unknown
-        throw new Error('A transaction is still pending. Reload to check it')
+        // An earlier batch's outcome is unknown: check it, never resend
+        update({ batched: true, txStatus: 'confirm' })
+        const hash = await finishBatch(draft.batch.id)
+        if (draft.batch.step === 'setup') {
+          saveDraft({ ...draftRef.current!, commitHash: hash })
+          throw new Error('Your commitment landed. Wait for it, then register')
+        }
+        saveDraft(undefined)
+        update({
+          phase: 'done',
+          txStatus: undefined,
+          hashes: { commit: draft.commitHash, register: hash },
+        })
+        return
       }
       if (!draft?.commitHash) {
         throw new Error('No commitment found. Please start again')
@@ -510,11 +522,20 @@ export function useRegistration(params: RegistrationParams) {
         hashes: { commit: draft.commitHash, register: registerHash },
       })
     } catch (err) {
-      update({ error: getErrorMessage(err) })
+      update({ error: getErrorMessage(err), txStatus: undefined })
     } finally {
       running.current = false
     }
-  }, [client, ensureAllowance, params, saveDraft, send, sendBatch, update])
+  }, [
+    client,
+    ensureAllowance,
+    finishBatch,
+    params,
+    saveDraft,
+    send,
+    sendBatch,
+    update,
+  ])
 
   /**
    * Leave the flow. Progress is forgotten only if nothing has been sent that
