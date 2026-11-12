@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import { InputScreen } from './screens/Input'
 import { PrimaryNamesScreen } from './screens/PrimaryNames'
 import { ProfileScreen } from './screens/Profile'
+import { RegisterScreen } from './screens/Register'
 
 /** Every example, in the order they're listed on the home page */
 export const examples: {
@@ -32,5 +33,11 @@ export const examples: {
     title: 'Primary names',
     description: 'Show the primary name of an address on L1 and each L2.',
     Screen: PrimaryNamesScreen,
+  },
+  {
+    path: '/register',
+    title: 'Register a name',
+    description: 'Register a .eth name on ENSv2, with a resolver you own.',
+    Screen: RegisterScreen,
   },
 ]
