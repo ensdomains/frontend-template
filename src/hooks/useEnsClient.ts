@@ -8,9 +8,12 @@ import type { EnsChainId } from '../lib/chains'
 export type EnsContractsChain = ChainWithContracts<
   | 'ensEthRegistrar'
   | 'ensUniversalResolver'
+  | 'ensUniversalHelper'
   | 'multicall3'
   | 'ensVerifiableFactory'
   | 'ensPermissionedResolverImpl'
+  | 'ensReverseRegistrar'
+  | 'ensPublicResolver'
   | 'usdc'
   | 'dai'
 >
