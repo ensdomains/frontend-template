@@ -12,10 +12,10 @@ import {
   parseAbi,
   toCoinType,
 } from 'viem'
-import { normalize } from 'viem/ens'
 import { usePublicClient } from 'wagmi'
 
 import type { EnsChainId, allChains } from '../lib/chains'
+import { normalizedOrNull } from '../lib/format'
 
 type Props = {
   address: Address | undefined
@@ -36,7 +36,9 @@ export function useEnsNameOptimistic({ address, l1ChainId, l2ChainId }: Props) {
       if (!address) return null
 
       // L1 primary names have no propagation delay
-      if (l2ChainId === l1ChainId) return l1Client.getEnsName({ address })
+      if (l2ChainId === l1ChainId) {
+        return normalizedOrNull(await l1Client.getEnsName({ address }))
+      }
 
       // Each L2 has its own reverse namespace, e.g. 80002105.reverse for Base
       const reverseNamespace = `${toCoinType(l2ChainId).toString(16)}.reverse`
@@ -59,7 +61,7 @@ export function useEnsNameOptimistic({ address, l1ChainId, l2ChainId }: Props) {
         functionName: 'nameForAddr',
         args: [address],
       })
-      if (!reverseName || !isNormalized(reverseName)) return null
+      if (!normalizedOrNull(reverseName)) return null
 
       // A reverse record is only valid if the name resolves back to the
       // address on that chain's coin type
@@ -73,15 +75,6 @@ export function useEnsNameOptimistic({ address, l1ChainId, l2ChainId }: Props) {
         : null
     },
   })
-}
-
-/** Reverse records are user-set strings, so only show normalized names */
-function isNormalized(name: string) {
-  try {
-    return normalize(name) === name
-  } catch {
-    return false
-  }
 }
 
 /**
