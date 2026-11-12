@@ -1,130 +1,105 @@
-// L2 Primary Names usually have a few hour propagation delay
-// This hook resolves the data instantly, provided the client has access to L1 and L2 clients
+// L2 primary names usually take a few hours to propagate to L1, because the
+// L1 resolver for each L2 reverse namespace reads L2 state through a proof.
+// This hook skips the wait by reading the L2 reverse registrar directly, then
+// verifying the forward record on L1. Use `usePrimaryName` (the Universal
+// Resolver) for anything security sensitive; this is for instant feedback.
+import { getUnderlyingAddress } from '@ensdomains/ensjs/public/v2'
 import { useQuery } from '@tanstack/react-query'
 import {
   type Address,
-  type Hex,
   type PublicClient,
+  isAddressEqual,
   parseAbi,
   toCoinType,
 } from 'viem'
-import { useChains, usePublicClient } from 'wagmi'
-import { mainnet, sepolia } from 'wagmi/chains'
+import { normalize } from 'viem/ens'
+import { usePublicClient } from 'wagmi'
 
-const l1ChainIds = [mainnet.id, sepolia.id]
+import type { EnsChainId, allChains } from '../lib/chains'
 
 type Props = {
-  address: Hex | undefined
-  l1ChainId?: (typeof l1ChainIds)[number]
-  l2ChainId: number
+  address: Address | undefined
+  /** The L1 that ENS is on (mainnet or Sepolia) */
+  l1ChainId: EnsChainId
+  /** The chain to get the primary name for. Use the L1 ID for L1 names. */
+  l2ChainId: (typeof allChains)[number]['id']
 }
 
-export function useEnsNameOptimistic({
-  address,
-  l1ChainId = mainnet.id,
-  l2ChainId,
-}: Props) {
-  const wagmiConfigChains = useChains()
-  const wagmiConfigChainIds = [0, ...wagmiConfigChains.map((chain) => chain.id)]
-
-  if (
-    !wagmiConfigChainIds.includes(l1ChainId) ||
-    !wagmiConfigChainIds.includes(l2ChainId)
-  ) {
-    throw new Error(
-      `ChainId ${l1ChainId} or ${l2ChainId} is not in the wagmi config`
-    )
-  }
-
-  if (!(l1ChainIds as number[]).includes(l1ChainId)) {
-    throw new Error(`ChainId ${l1ChainId} is not an L1 chain`)
-  }
-
-  const l2Client = usePublicClient({ chainId: l2ChainId })!
-  const l1Client = usePublicClient({ chainId: l1ChainId })!
+export function useEnsNameOptimistic({ address, l1ChainId, l2ChainId }: Props) {
+  const l1Client = usePublicClient({ chainId: l1ChainId }) as PublicClient
+  const l2Client = usePublicClient({ chainId: l2ChainId }) as PublicClient
 
   return useQuery({
-    queryKey: ['l2-name', l1ChainId, l2ChainId, address],
+    queryKey: ['primary-name-optimistic', l1ChainId, l2ChainId, address],
+    enabled: !!address,
     queryFn: async () => {
-      if (!address) {
-        return null
-      }
+      if (!address) return null
 
-      if (l2ChainId === 0) {
-        // Handle default namespace
-        const defaultReverseResolver = await l1Client.getEnsResolver({
-          name: 'reverse',
-        })
+      // L1 primary names have no propagation delay
+      if (l2ChainId === l1ChainId) return l1Client.getEnsName({ address })
 
-        const defaultReverseRegistrar = await l1Client.readContract({
-          address: defaultReverseResolver,
-          abi: parseAbi(['function defaultRegistrar() view returns (address)']),
-          functionName: 'defaultRegistrar',
-        })
+      // Each L2 has its own reverse namespace, e.g. 80002105.reverse for Base
+      const reverseNamespace = `${toCoinType(l2ChainId).toString(16)}.reverse`
+      const chainReverseResolver = await getUnderlyingResolver(
+        l1Client,
+        reverseNamespace
+      )
 
-        return resolveReverseName({
-          address,
-          l1Client,
-          l2Client: l1Client,
-          l2ChainId,
-          reverseRegistrar: defaultReverseRegistrar,
-        })
-      } else if (l2ChainId === 1) {
-        return l1Client.getEnsName({ address })
-      } else {
-        // Handle L2 namespaces
-        const reverseNamespace = `${toCoinType(l2ChainId).toString(16)}.reverse`
-        const chainReverseResolver = await l1Client.getEnsResolver({
-          name: reverseNamespace,
-        })
+      // Throws on chains without an L2 reverse registrar, because the
+      // namespace falls back to the default reverse resolver
+      const l2ReverseRegistrar = await l1Client.readContract({
+        address: chainReverseResolver,
+        abi: parseAbi(['function l2Registrar() view returns (address)']),
+        functionName: 'l2Registrar',
+      })
 
-        // Note: this will throw on unsupported chains, because `chainReverseResolver` will be the DefaultReverseResolver which doesn't have a `l2Registrar` function
-        const l2ReverseRegistrar = await l1Client.readContract({
-          address: chainReverseResolver,
-          abi: parseAbi(['function l2Registrar() view returns (address)']),
-          functionName: 'l2Registrar',
-        })
+      const reverseName = await l2Client.readContract({
+        address: l2ReverseRegistrar,
+        abi: parseAbi(['function nameForAddr(address) view returns (string)']),
+        functionName: 'nameForAddr',
+        args: [address],
+      })
+      if (!reverseName || !isNormalized(reverseName)) return null
 
-        return resolveReverseName({
-          address,
-          l1Client,
-          l2Client,
-          l2ChainId,
-          reverseRegistrar: l2ReverseRegistrar,
-        })
-      }
+      // A reverse record is only valid if the name resolves back to the
+      // address on that chain's coin type
+      const forwardAddr = await l1Client.getEnsAddress({
+        name: reverseName,
+        coinType: toCoinType(l2ChainId),
+      })
+
+      return forwardAddr && isAddressEqual(forwardAddr, address)
+        ? reverseName
+        : null
     },
   })
 }
 
-async function resolveReverseName({
-  address,
-  l1Client,
-  l2Client,
-  l2ChainId,
-  reverseRegistrar,
-}: {
-  l1Client: PublicClient
-  l2Client: PublicClient
-  address: Hex
-  l2ChainId: number
-  reverseRegistrar: Address
-}) {
-  const reverseName = await l2Client.readContract({
-    address: reverseRegistrar,
-    abi: parseAbi(['function nameForAddr(address) view returns (string)']),
-    functionName: 'nameForAddr',
-    args: [address],
-  })
-
-  const forwardAddr = await l1Client.getEnsAddress({
-    name: reverseName,
-    coinType: toCoinType(l2ChainId),
-  })
-
-  if (forwardAddr?.toLowerCase() === address.toLowerCase()) {
-    return reverseName
+/** Reverse records are user-set strings, so only show normalized names */
+function isNormalized(name: string) {
+  try {
+    return normalize(name) === name
+  } catch {
+    return false
   }
+}
 
-  return null
+/**
+ * In ENSv2, names that still live in the v1 registry (like the reverse
+ * namespaces) are served through a composite "fallback" resolver, which is
+ * what the Universal Resolver reports. Ask it for the actual v1 resolver,
+ * since that's the contract with the `l2Registrar()` getter.
+ */
+async function getUnderlyingResolver(client: PublicClient, name: string) {
+  const resolver = await client.getEnsResolver({ name })
+  try {
+    const [underlying] = await getUnderlyingAddress(client, {
+      resolverAddress: resolver,
+      name,
+    })
+    return underlying
+  } catch {
+    // Not a composite resolver, so it's already the actual one
+    return resolver
+  }
 }

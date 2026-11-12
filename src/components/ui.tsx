@@ -1,59 +1,379 @@
-import { Slot } from '@radix-ui/react-slot'
-import { type VariantProps, cva } from 'class-variance-authority'
-import * as React from 'react'
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from 'react'
+import { useId } from 'react'
+import { type Props, cx, style, variants } from 'zyzz'
+import { keyframes } from 'zyzz/web'
 
-import { cn } from '@/lib/utils'
+const spin = keyframes({
+  from: { transform: 'rotate(0deg)' },
+  to: { transform: 'rotate(360deg)' },
+})
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
-  {
-    variants: {
-      variant: {
-        default:
-          'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90',
-        destructive:
-          'bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',
-        outline:
-          'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
-        secondary:
-          'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
-        ghost:
-          'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
-        link: 'text-primary underline-offset-4 hover:underline',
-      },
-      size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-        sm: 'h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5',
-        lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
-        icon: 'size-9',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-      size: 'default',
-    },
-  }
-)
-
-function Button({
-  className,
-  variant,
-  size,
-  asChild = false,
-  ...props
-}: React.ComponentProps<'button'> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
-  const Comp = asChild ? Slot : 'button'
-
+export function Spinner({ size = 16 }: { size?: number }) {
   return (
-    <Comp
-      data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
+    <span
+      aria-hidden
+      {...styles.spinner({ style: { width: size, height: size } })}
     />
   )
 }
 
-export { Button, buttonVariants }
+export function Button({
+  tone,
+  size,
+  loading,
+  children,
+  disabled,
+  ...props
+}: Pick<Props.Variants<typeof styles.button>, 'tone' | 'size'> &
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'style'> & {
+    loading?: boolean
+  }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+      {...styles.button({ tone, size })}
+    >
+      {loading && <Spinner />}
+      {children}
+    </button>
+  )
+}
+
+export function Input({
+  label,
+  suffix,
+  error,
+  hint,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'className' | 'style'> & {
+  label: string
+  suffix?: ReactNode
+  error?: string
+  hint?: ReactNode
+}) {
+  const id = useId()
+
+  return (
+    <div {...styles.field()}>
+      <label htmlFor={id} {...styles.label()}>
+        {label}
+      </label>
+      <div data-invalid={error ? '' : undefined} {...styles.inputWrapper()}>
+        <input
+          id={id}
+          aria-invalid={!!error}
+          spellCheck={false}
+          autoCapitalize="none"
+          autoComplete="off"
+          {...props}
+          {...styles.input()}
+        />
+        {suffix && <span {...styles.suffix()}>{suffix}</span>}
+      </div>
+      {error ? (
+        <span role="alert" {...cx(styles.message(), styles.error())}>
+          {error}
+        </span>
+      ) : hint ? (
+        <span {...styles.message()}>{hint}</span>
+      ) : null}
+    </div>
+  )
+}
+
+export function Card({
+  children,
+  title,
+  description,
+}: {
+  children?: ReactNode
+  title?: ReactNode
+  description?: ReactNode
+}) {
+  return (
+    <section {...styles.card()}>
+      {(title || description) && (
+        <header {...styles.cardHeader()}>
+          {title && <h2 {...styles.cardTitle()}>{title}</h2>}
+          {description && <p {...styles.cardDescription()}>{description}</p>}
+        </header>
+      )}
+      {children}
+    </section>
+  )
+}
+
+/** An inline status message. `tone` sets the color. */
+export function Notice({
+  tone = 'info',
+  children,
+}: {
+  tone?: 'info' | 'success' | 'error'
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      {...styles.notice({ tone })}
+    >
+      {children}
+    </div>
+  )
+}
+
+/** A label/value row, for showing resolved data */
+export function Row({
+  label,
+  children,
+}: {
+  label: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div {...styles.row()}>
+      <span {...styles.rowLabel()}>{label}</span>
+      <span {...styles.rowValue()}>{children}</span>
+    </div>
+  )
+}
+
+namespace styles {
+  export const card = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.25rem',
+    padding: '1rem',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    backgroundColor: 'var(--surface)',
+    minWidth: 0,
+    '@media (min-width: 640px)': { padding: '1.5rem' },
+  })
+
+  export const cardHeader = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.375rem',
+  })
+
+  export const cardTitle = style({
+    margin: 0,
+    fontSize: '1.25rem',
+    fontWeight: 500,
+    letterSpacing: '-0.02em',
+  })
+
+  export const cardDescription = style({
+    margin: 0,
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-body)',
+    fontSize: '1.0625rem',
+    lineHeight: 1.35,
+  })
+
+  export const notice = variants({
+    base: {
+      padding: '0.75rem 1rem',
+      borderRadius: 'var(--radius)',
+      fontWeight: 500,
+      fontSize: '0.9375rem',
+      lineHeight: 1.35,
+      overflowWrap: 'anywhere',
+    },
+    defaultVariants: { tone: 'info' },
+    variants: {
+      tone: {
+        info: { backgroundColor: 'var(--blue-light)', color: 'var(--text)' },
+        success: {
+          backgroundColor: 'var(--green-light)',
+          color: 'var(--text)',
+        },
+        error: { backgroundColor: 'var(--error-light)', color: 'var(--text)' },
+      },
+    },
+  })
+
+  export const row = style({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+    minHeight: '2.5rem',
+    borderBottom: '1px solid var(--border)',
+    paddingBottom: '0.5rem',
+    ':last-child': { borderBottom: 'none', paddingBottom: 0 },
+  })
+
+  export const rowLabel = style({
+    flexShrink: 0,
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+    fontSize: '0.9375rem',
+  })
+
+  export const rowValue = style({
+    minWidth: 0,
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.9375rem',
+    textAlign: 'right',
+    overflowWrap: 'anywhere',
+  })
+
+  export const spinner = style({
+    display: 'inline-block',
+    flexShrink: 0,
+    borderRadius: '50%',
+    border: '2px solid currentColor',
+    borderRightColor: 'transparent',
+    animationName: spin,
+    animationDuration: '700ms',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'linear',
+  })
+
+  export const button = variants({
+    base: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '0.5rem',
+      width: '100%',
+      border: 'none',
+      borderRadius: 'var(--radius)',
+      fontWeight: 500,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+      letterSpacing: '-0.01em',
+      transitionProperty: 'transform, background-color, opacity',
+      transitionDuration: '150ms',
+      ':active': { transform: 'scale(0.99)' },
+      ':focus-visible': {
+        outline: '2px solid var(--blue)',
+        outlineOffset: '2px',
+      },
+      ':disabled': {
+        cursor: 'not-allowed',
+        transform: 'none',
+        opacity: 0.5,
+      },
+    },
+    defaultVariants: { tone: 'primary', size: 'regular' },
+    variants: {
+      tone: {
+        primary: {
+          backgroundColor: 'var(--blue)',
+          color: 'var(--surface)',
+          ':hover': { backgroundColor: 'var(--blue-hover)' },
+          ':disabled': {
+            backgroundColor: 'var(--border)',
+            color: 'var(--text-tertiary)',
+            opacity: 1,
+          },
+        },
+        secondary: {
+          backgroundColor: 'var(--blue-light)',
+          color: 'var(--blue)',
+          ':hover': { backgroundColor: 'var(--blue-light-hover)' },
+        },
+        ghost: {
+          backgroundColor: 'transparent',
+          color: 'var(--text-secondary)',
+          ':hover': { backgroundColor: 'var(--surface-secondary)' },
+        },
+        danger: {
+          backgroundColor: 'var(--error-light)',
+          color: 'var(--text)',
+        },
+      },
+      size: {
+        regular: { height: '3.25rem', padding: '0 1.25rem', fontSize: '1rem' },
+        small: {
+          height: '2.5rem',
+          padding: '0 1rem',
+          fontSize: '0.9375rem',
+          borderRadius: '0.75rem',
+        },
+      },
+    },
+  })
+
+  export const field = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+    minWidth: 0,
+  })
+
+  // Eyebrow-style labels, as in the brand's metadata treatment
+  export const label = style({
+    paddingLeft: '0.25rem',
+    fontWeight: 500,
+    fontSize: '0.75rem',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-secondary)',
+  })
+
+  export const inputWrapper = style({
+    display: 'flex',
+    alignItems: 'center',
+    height: '3.25rem',
+    paddingRight: '1rem',
+    borderRadius: 'var(--radius)',
+    border: '1px solid var(--border)',
+    backgroundColor: 'var(--surface)',
+    transitionProperty: 'border-color, box-shadow',
+    transitionDuration: '150ms',
+    ':hover': { borderColor: 'var(--border-strong)' },
+    ':focus-within': {
+      borderColor: 'var(--blue)',
+      boxShadow: '0 0 0 3px var(--blue-light)',
+    },
+    '&[data-invalid]': {
+      borderColor: 'var(--error)',
+      boxShadow: '0 0 0 3px var(--error-light)',
+    },
+  })
+
+  export const input = style({
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    padding: '0 0 0 1rem',
+    border: 'none',
+    outline: 'none',
+    backgroundColor: 'transparent',
+    // Names and addresses read best in mono, like the brand's name pills
+    fontFamily: 'var(--font-mono)',
+    // 16px or larger stops iOS Safari from zooming in on focus
+    fontSize: '1rem',
+    fontWeight: 400,
+    '::placeholder': { color: 'var(--text-tertiary)' },
+  })
+
+  export const suffix = style({
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: '0.5rem',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '1rem',
+    whiteSpace: 'nowrap',
+  })
+
+  export const message = style({
+    paddingLeft: '0.25rem',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    color: 'var(--text-secondary)',
+  })
+
+  export const error = style({ color: 'var(--error-text)' })
+}

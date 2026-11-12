@@ -1,22 +1,26 @@
+// Self-hosted fonts, bundled by Vite. Browsers only fetch the subsets they need.
+import '@fontsource-variable/geist-mono/wght.css'
+import '@fontsource-variable/inter-tight/wght.css'
+import '@fontsource-variable/newsreader/opsz.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
 import { WagmiProvider } from 'wagmi'
 
-import App from './App.tsx'
-import './index.css'
-import { wagmiConfig } from './lib/wagmi.ts'
+import { App } from './App'
+import './globals'
+import { NetworkProvider } from './lib/network'
+import { config } from './lib/wagmi'
 
 const queryClient = new QueryClient()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <WagmiProvider config={wagmiConfig}>
+    <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <NetworkProvider>
           <App />
-        </BrowserRouter>
+        </NetworkProvider>
       </QueryClientProvider>
     </WagmiProvider>
   </StrictMode>
