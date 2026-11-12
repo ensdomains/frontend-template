@@ -1,59 +1,39 @@
 import { useState } from 'react'
-import { useDebounceValue } from 'usehooks-ts'
-import { isAddress } from 'viem'
-import { useEnsAddress } from 'wagmi'
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Layout } from '@/components/ui/layout'
-import { GitHubFooter } from '@/components/ui/link'
+import { Identity } from '../components/Identity'
+import { Page } from '../components/Page'
+import { Card, Input, Row, Spinner } from '../components/ui'
+import { useAddressOrName } from '../hooks/useAddressOrName'
 
 export function InputScreen() {
   const [input, setInput] = useState('')
-  const [debouncedInput] = useDebounceValue(input, 500)
-
-  // Resolve potential ENS names (dot separated strings)
-  const { data: ensAddress, isLoading: ensAddressIsLoading } = useEnsAddress({
-    name: debouncedInput.includes('.') ? debouncedInput : undefined,
-    chainId: 1,
-  })
-
-  // Set the address (address if provided directly or resolved address from ENS name)
-  const address =
-    input !== debouncedInput
-      ? undefined
-      : isAddress(debouncedInput)
-        ? debouncedInput
-        : ensAddress
+  const { result, isLoading, error } = useAddressOrName(input)
 
   return (
-    <Layout className="max-w-xl">
+    <Page
+      title="Name or address input"
+      description="Every address input should also accept ENS names. Resolve names to addresses as the user types, and show the primary name for pasted addresses."
+      source="src/hooks/useAddressOrName.ts"
+    >
       <Card>
-        <CardHeader>
-          <CardTitle>Name/Address Input</CardTitle>
-          <CardDescription>
-            Every address input should also accept ENS names.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <Input
-            label="Address or ENS name"
-            placeholder="nick.eth"
-            onChange={(e) => setInput(e.target.value)}
-            loading={ensAddressIsLoading}
-          />
+        <Input
+          label="Address or ENS name"
+          placeholder="nick.eth or 0x…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          suffix={isLoading ? <Spinner /> : undefined}
+          error={error}
+        />
 
-          {address && <span className="text-sm text-green-600">{address}</span>}
-        </CardContent>
+        {result && (
+          <div>
+            <Row label="Resolves to">
+              <Identity address={result.address} name={result.name} />
+            </Row>
+            <Row label="Address">{result.address}</Row>
+          </div>
+        )}
       </Card>
-
-      <GitHubFooter href="https://github.com/ensdomains/frontend-template/blob/main/src/screens/Input.tsx" />
-    </Layout>
+    </Page>
   )
 }

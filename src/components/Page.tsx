@@ -1,22 +1,96 @@
-import type React from 'react'
-import type { PropsWithChildren } from 'react'
+import type { ReactNode } from 'react'
+import { style } from 'zyzz'
 
-import { cn } from '@/lib/utils'
+import { Link } from '../lib/router'
+import { GithubIcon } from './icons'
 
-export function Layout({
+const REPO_URL = 'https://github.com/ensdomains/frontend-template'
+
+/** Shared layout for an example: title, intro, content, and a source link. */
+export function Page({
+  title,
+  description,
+  source,
   children,
-  className,
-  ...props
-}: PropsWithChildren<React.ComponentProps<'div'>>) {
+}: {
+  title: string
+  description: ReactNode
+  /** Path of the file to link to on GitHub, e.g. "src/screens/Input.tsx" */
+  source?: string
+  children: ReactNode
+}) {
   return (
-    <div
-      className={cn(
-        'mx-auto flex max-w-5xl flex-col gap-4 px-6 py-10',
-        className
-      )}
-      {...props}
-    >
+    <main {...styles.main()}>
+      <header {...styles.header()}>
+        <Link href="/" {...styles.back()}>
+          ← All examples
+        </Link>
+        <h1 {...styles.title()}>{title}</h1>
+        <p {...styles.description()}>{description}</p>
+      </header>
       {children}
-    </div>
+      {source && (
+        <a
+          href={`${REPO_URL}/blob/main/${source}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          {...styles.source()}
+        >
+          <GithubIcon /> View the code
+        </a>
+      )}
+    </main>
   )
+}
+
+namespace styles {
+  export const main = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
+    width: '100%',
+    maxWidth: '40rem',
+  })
+
+  export const header = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+  })
+
+  export const back = style({
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+    fontSize: '0.9375rem',
+    ':hover': { color: 'var(--blue)' },
+  })
+
+  // Brand headline: 96% line height, -3% letter spacing
+  export const title = style({
+    margin: 0,
+    fontSize: '2.25rem',
+    fontWeight: 500,
+    letterSpacing: '-0.03em',
+    lineHeight: 0.96,
+    '@media (min-width: 640px)': { fontSize: '3rem' },
+  })
+
+  export const description = style({
+    margin: 0,
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-body)',
+    fontSize: '1.1875rem',
+    lineHeight: 1.35,
+  })
+
+  export const source = style({
+    display: 'inline-flex',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: '0.5rem',
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+    fontSize: '0.9375rem',
+    ':hover': { color: 'var(--blue)' },
+  })
 }
