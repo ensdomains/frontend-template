@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { encodeFunctionData, parseAbi, parseUnits } from 'viem'
-import { sendTransaction, waitForTransactionReceipt } from 'wagmi/actions'
+import { sendTransaction } from 'wagmi/actions'
 import { style } from 'zyzz'
 
 import { useEnsClient } from '../hooks/useEnsClient'
@@ -12,6 +12,7 @@ import {
   getErrorMessage,
   getPaymentTokenAddress,
 } from '../lib/registration'
+import { confirmTransaction } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 import { Spinner } from './ui'
 
@@ -42,7 +43,7 @@ export function TestnetFaucet({ token }: { token: PaymentToken }) {
           args: [address, parseUnits('100', decimals)],
         }),
       })
-      await waitForTransactionReceipt(config, { hash, chainId: sepolia.id })
+      await confirmTransaction(sepolia.id, hash)
       setStatus(`Minted 100 test ${symbol}`)
     } catch (err) {
       setStatus(getErrorMessage(err))

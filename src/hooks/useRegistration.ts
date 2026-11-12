@@ -13,8 +13,6 @@ import {
   sendCalls,
   sendTransaction,
   simulateContract,
-  waitForCallsStatus,
-  waitForTransactionReceipt,
 } from 'wagmi/actions'
 
 import type { EnsChainId } from '../lib/chains'
@@ -29,6 +27,7 @@ import {
   getRevertError,
   simulateRegistration,
 } from '../lib/registration'
+import { confirmBatch, confirmTransaction } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 import { useEnsClient } from './useEnsClient'
 
@@ -48,24 +47,31 @@ export type RegistrationState = {
   txStatus?: 'sign' | 'confirm'
   /** True while the registration is being simulated */
   checking?: boolean
-  /** True when the setup calls go out as one EIP-5792 batch */
+  /** True when calls go out as EIP-5792 batches */
   batched?: boolean
   /** Unix ms timestamp for when the commitment can be revealed */
   readyAt?: number
+  /** Registered, but the ETH address record still needs to be set */
+  needsRecord?: boolean
+  /** False when progress can't be saved, so a reload would lose it */
+  persisted?: boolean
   error?: string
-  hashes: { setup?: Hash; register?: Hash }
+  hashes: { commit?: Hash; register?: Hash }
 }
 
 /**
- * Saved in localStorage between page loads. The secret must be the same at
- * commit and register, so losing it means paying for a new commit.
+ * Progress that must survive until the name is registered. The secret has to
+ * be the same at commit and register, so losing it means paying for a new
+ * commit. Kept in memory, and saved to localStorage so a reload can resume.
  */
 type Draft = {
   secret: Hex
-  /** EIP-5792 batch id, while a batched setup is in flight */
+  /** EIP-5792 batch id, while a batch is in flight */
   batchId?: string
-  /** The commit transaction, once sent */
+  /** The confirmed commit transaction */
   commitHash?: Hash
+  /** The confirmed register transaction (the ETH record may still be unset) */
+  registerHash?: Hash
 }
 
 const DRAFT_PREFIX = 'ens-examples:registration:'
@@ -74,25 +80,32 @@ function draftKey(p: RegistrationParams) {
   return `${DRAFT_PREFIX}${p.chainId}:${p.account.toLowerCase()}:${p.label}:${p.years}:${p.token}`
 }
 
+const HASH = /^0x[0-9a-f]{64}$/i
+
+/** Reads a saved draft, ignoring anything malformed */
 function loadDraft(p: RegistrationParams): Draft | undefined {
   try {
-    const raw = localStorage.getItem(draftKey(p))
-    const draft = raw ? (JSON.parse(raw) as Partial<Draft>) : undefined
-    // Only trust a well-formed 32-byte secret
-    return draft && /^0x[0-9a-f]{64}$/i.test(draft.secret ?? '')
-      ? (draft as Draft)
-      : undefined
+    const raw = JSON.parse(localStorage.getItem(draftKey(p)) ?? 'null')
+    if (!raw || !HASH.test(raw.secret)) return undefined
+    return {
+      secret: raw.secret,
+      batchId: typeof raw.batchId === 'string' ? raw.batchId : undefined,
+      commitHash: HASH.test(raw.commitHash) ? raw.commitHash : undefined,
+      registerHash: HASH.test(raw.registerHash) ? raw.registerHash : undefined,
+    }
   } catch {
     return undefined
   }
 }
 
-function saveDraft(p: RegistrationParams, draft: Draft | undefined) {
+/** Returns false if the draft couldn't be saved (e.g. private mode) */
+function persistDraft(p: RegistrationParams, draft: Draft | undefined) {
   try {
     if (draft) localStorage.setItem(draftKey(p), JSON.stringify(draft))
     else localStorage.removeItem(draftKey(p))
+    return true
   } catch {
-    // Storage can be unavailable (private mode). The flow still works.
+    return false
   }
 }
 
@@ -121,14 +134,16 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * setup and the wait, `register` finishes it. A reload mid-way resumes from
  * the saved commit.
  */
-export function useRegistration(params: RegistrationParams | undefined) {
-  const client = useEnsClient(params?.chainId ?? 1)
+export function useRegistration(params: RegistrationParams) {
+  const client = useEnsClient(params.chainId)
   const [state, setState] = useState<RegistrationState>({
     phase: 'idle',
     hashes: {},
   })
   const running = useRef(false)
   const mounted = useRef(true)
+  // The source of truth for progress. localStorage is only a backup.
+  const draftRef = useRef<Draft | undefined>(undefined)
 
   useEffect(() => {
     mounted.current = true
@@ -141,50 +156,81 @@ export function useRegistration(params: RegistrationParams | undefined) {
     if (mounted.current) setState((prev) => ({ ...prev, ...next }))
   }, [])
 
-  // Pick up a registration that was committed before the page was closed
+  // Load progress saved before a reload
   useEffect(() => {
-    if (!params) return
-    const draft = loadDraft(params)
-    setState({
-      phase: draft?.commitHash || draft?.batchId ? 'wait' : 'idle',
-      hashes: { setup: draft?.commitHash },
-    })
+    draftRef.current = loadDraft(params)
+    setState({ phase: 'idle', hashes: {} })
   }, [params])
 
-  /** Sends one transaction and waits for it to succeed */
+  const saveDraft = useCallback(
+    (draft: Draft | undefined) => {
+      draftRef.current = draft
+      const persisted = persistDraft(params, draft)
+      if (draft) update({ persisted })
+    },
+    [params, update]
+  )
+
+  /** Sends one transaction and waits for it (not a replacement) to succeed */
   const send = useCallback(
-    async (p: RegistrationParams, call: Call) => {
+    async (call: Call) => {
       update({ txStatus: 'sign' })
       const hash = await sendTransaction(config, {
-        chainId: p.chainId,
-        account: p.account,
+        chainId: params.chainId,
+        account: params.account,
         ...call,
       })
       update({ txStatus: 'confirm' })
-      const receipt = await waitForTransactionReceipt(config, {
-        chainId: p.chainId,
-        hash,
-      })
-      if (receipt.status !== 'success') throw new Error('Transaction failed')
-      return hash
+      return confirmTransaction(params.chainId, hash)
     },
-    [update]
+    [params, update]
+  )
+
+  /**
+   * Sends calls as one atomic batch if the wallet supports it, or one by one.
+   * Returns the hash of the transaction that ran the last call.
+   */
+  const sendAll = useCallback(
+    async (calls: Call[], draft: Draft) => {
+      if (calls.length > 1 && (await supportsAtomicBatch(params.chainId))) {
+        update({ batched: true, txStatus: 'sign' })
+        const { id } = await sendCalls(config, {
+          chainId: params.chainId,
+          account: params.account,
+          forceAtomic: true,
+          calls,
+        })
+        saveDraft({ ...draft, batchId: id })
+        update({ txStatus: 'confirm' })
+        try {
+          return await confirmBatch(id)
+        } finally {
+          saveDraft({ ...draftRef.current!, batchId: undefined })
+        }
+      }
+
+      update({ batched: false })
+      let hash: Hash | undefined
+      for (const call of calls) hash = await send(call)
+      return hash!
+    },
+    [params, saveDraft, send, update]
   )
 
   /** Approves the registrar again if the price rose or approval was spent */
   const ensureAllowance = useCallback(
-    async (p: RegistrationParams, paymentToken: Address) => {
+    async (paymentToken: Address) => {
       const registrar = getRegistrarAddress(client)
-      const { total } = await getPrice(client, p)
+      const { total } = await getPrice(client, params)
       const allowance = await readContract(config, {
-        chainId: p.chainId,
+        chainId: params.chainId,
         address: paymentToken,
         abi: erc20Abi,
         functionName: 'allowance',
-        args: [p.account, registrar],
+        args: [params.account, registrar],
       })
       if (allowance >= total) return
-      await send(p, {
+      await send({
         to: paymentToken,
         data: encodeFunctionData({
           abi: erc20Abi,
@@ -193,20 +239,20 @@ export function useRegistration(params: RegistrationParams | undefined) {
         }),
       })
     },
-    [client, send]
+    [client, params, send]
   )
 
   /** Polls until the registrar accepts the commitment (~60 seconds) */
   const waitForCommitment = useCallback(
-    async (p: RegistrationParams, register: RegisterWrite) => {
+    async (register: RegisterWrite) => {
       update({ phase: 'wait', txStatus: undefined })
 
       while (mounted.current) {
         try {
           await simulateContract(config, {
             ...register,
-            chainId: p.chainId,
-            account: p.account,
+            chainId: params.chainId,
+            account: params.account,
           })
           // A simulated register succeeds, so the wait is over
           update({ readyAt: Date.now() })
@@ -233,35 +279,56 @@ export function useRegistration(params: RegistrationParams | undefined) {
             update({ readyAt: Date.now() })
             return
           }
-          if (revert?.name === 'CommitmentTooOld') saveDraft(p, undefined)
+          if (revert?.name === 'CommitmentTooOld') saveDraft(undefined)
           throw err
         }
       }
     },
-    [update]
+    [params, saveDraft, update]
   )
 
   /** Setup (resolver, approval, commit) and the wait */
   const start = useCallback(async () => {
-    if (!params || running.current) return
+    if (running.current) return
     running.current = true
     update({ error: undefined })
 
     try {
-      const draft = loadDraft(params) ?? { secret: randomSecret() }
-      saveDraft(params, draft)
+      const draft = draftRef.current ?? { secret: randomSecret() }
+      saveDraft(draft)
       const calls = await getRegistrationCalls(client, {
         ...params,
         secret: draft.secret,
       })
 
-      // A batch sent before a reload: wait for it to land
-      if (draft.batchId && !draft.commitHash) {
-        update({ phase: 'setup', batched: true, txStatus: 'confirm' })
-        draft.commitHash = await finishBatch(params, draft)
+      if (draft.registerHash) {
+        // Registered before a reload; only the address record is left
+        update({
+          phase: 'register',
+          needsRecord: true,
+          hashes: { register: draft.registerHash },
+        })
+        return
       }
 
-      if (!draft.commitHash) {
+      if (draft.batchId && !draft.commitHash) {
+        // A setup batch sent before a reload: wait for it to land
+        update({ phase: 'setup', batched: true, txStatus: 'confirm' })
+        try {
+          saveDraft({ ...draft, commitHash: await confirmBatch(draft.batchId) })
+        } finally {
+          saveDraft({ ...draftRef.current!, batchId: undefined })
+        }
+      } else if (draft.commitHash) {
+        // Resumed after a reload: make sure the commit actually landed
+        update({ phase: 'setup', txStatus: 'confirm' })
+        try {
+          await confirmTransaction(params.chainId, draft.commitHash)
+        } catch (err) {
+          saveDraft({ secret: draft.secret })
+          throw err
+        }
+      } else {
         update({ phase: 'setup' })
 
         const balance = await readContract(config, {
@@ -289,106 +356,73 @@ export function useRegistration(params: RegistrationParams | undefined) {
         }
         if (failure) throw failure
 
-        if (await supportsAtomicBatch(params.chainId)) {
-          // Resolver, approval, and commit in one wallet confirmation
-          update({ batched: true, txStatus: 'sign' })
-          const { id } = await sendCalls(config, {
-            chainId: params.chainId,
-            account: params.account,
-            forceAtomic: true,
-            calls: calls.setup,
-          })
-          draft.batchId = id
-          saveDraft(params, draft)
-          update({ txStatus: 'confirm' })
-          draft.commitHash = await finishBatch(params, draft)
-        } else {
-          // One transaction per call. The commit is always last.
-          update({ batched: false })
-          let hash: Hash | undefined
-          for (const call of calls.setup) hash = await send(params, call)
-          draft.commitHash = hash
-        }
-        saveDraft(params, draft)
-      } else {
-        // Resumed: make sure the saved commit actually landed
-        update({ phase: 'setup', txStatus: 'confirm' })
-        const receipt = await waitForTransactionReceipt(config, {
-          chainId: params.chainId,
-          hash: draft.commitHash,
-        })
-        if (receipt.status !== 'success') {
-          saveDraft(params, { secret: draft.secret })
-          throw new Error('The commit transaction failed. Please try again')
-        }
+        // Resolver, approval, and commit. The commit is always last.
+        const commitHash = await sendAll(calls.setup, draft)
+        saveDraft({ ...draftRef.current!, commitHash })
       }
 
-      update({ hashes: { setup: draft.commitHash } })
-      await waitForCommitment(params, calls.registerWrite)
+      update({ hashes: { commit: draftRef.current?.commitHash } })
+      await waitForCommitment(calls.registerWrite)
     } catch (err) {
       update({ error: getErrorMessage(err) })
     } finally {
       running.current = false
     }
-  }, [client, params, send, update, waitForCommitment])
+  }, [client, params, saveDraft, sendAll, update, waitForCommitment])
 
-  /** Reveal the commitment and pay for the name */
+  /** Reveal the commitment, pay, and set the name's ETH address */
   const register = useCallback(async () => {
-    if (!params || running.current) return
+    if (running.current) return
     running.current = true
-    update({ phase: 'register', error: undefined })
+    update({ phase: 'register', error: undefined, needsRecord: false })
 
     try {
-      const draft = loadDraft(params)
-      if (!draft?.commitHash)
-        throw new Error('No commitment found. Start again')
+      const draft = draftRef.current
+      if (!draft?.commitHash) {
+        throw new Error('No commitment found. Please start again')
+      }
       const calls = await getRegistrationCalls(client, {
         ...params,
         secret: draft.secret,
       })
-      await ensureAllowance(params, calls.paymentToken)
-      const hash = await send(params, calls.register)
-      saveDraft(params, undefined)
+      const [registerCall, setAddressCall] = calls.register
+      let registerHash = draft.registerHash
+
+      if (!registerHash) {
+        await ensureAllowance(calls.paymentToken)
+        if (await supportsAtomicBatch(params.chainId)) {
+          // Register and set the record in one confirmation
+          registerHash = await sendAll(calls.register, draft)
+        } else {
+          registerHash = await send(registerCall)
+          saveDraft({ ...draft, registerHash })
+          update({ needsRecord: true })
+          await send(setAddressCall)
+        }
+      } else {
+        // Registered earlier, but setting the record didn't finish
+        await send(setAddressCall)
+      }
+
+      saveDraft(undefined)
       update({
         phase: 'done',
         txStatus: undefined,
-        hashes: { setup: draft.commitHash, register: hash },
+        hashes: { commit: draft.commitHash, register: registerHash },
       })
     } catch (err) {
       update({ error: getErrorMessage(err) })
     } finally {
       running.current = false
     }
-  }, [client, ensureAllowance, params, send, update])
+  }, [client, ensureAllowance, params, saveDraft, send, sendAll, update])
 
-  /** Forget a saved commitment and start over */
+  /** Forget saved progress and start over */
   const reset = useCallback(() => {
-    if (!params || running.current) return
-    saveDraft(params, undefined)
+    if (running.current) return
+    saveDraft(undefined)
     setState({ phase: 'idle', hashes: {} })
-  }, [params])
+  }, [saveDraft])
 
   return { state, start, register, reset }
-}
-
-/**
- * Waits for an EIP-5792 batch and returns the hash of its last call (the
- * commit). The batch id is forgotten either way, so a failed batch can be
- * retried.
- */
-async function finishBatch(p: RegistrationParams, draft: Draft) {
-  try {
-    const result = await waitForCallsStatus(config, {
-      id: draft.batchId!,
-      timeout: 15 * 60_000,
-    })
-    const last = result.receipts?.at(-1)
-    if (result.status !== 'success' || !last) {
-      throw new Error('The wallet batch failed')
-    }
-    return last.transactionHash
-  } finally {
-    draft.batchId = undefined
-    saveDraft(p, draft)
-  }
 }
