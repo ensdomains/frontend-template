@@ -28,15 +28,24 @@ export async function confirmTransaction(chainId: number, hash: Hash) {
   return receipt.transactionHash
 }
 
+/** The wallet reported that a batch definitely failed (nothing ran) */
+export class BatchFailedError extends Error {
+  constructor() {
+    super('The wallet batch failed')
+  }
+}
+
 /**
  * Waits for an EIP-5792 batch and returns the hash of the transaction that
- * included its last call.
+ * included its last call. Throws `BatchFailedError` only when the batch
+ * definitely failed; other errors (e.g. a timeout) mean the outcome is still
+ * unknown, so callers should keep the batch id and check again later.
  */
 export async function confirmBatch(id: string) {
   const result = await waitForCallsStatus(config, { id, timeout: 15 * 60_000 })
   const last = result.receipts?.at(-1)
   if (result.status !== 'success' || !last || last.status !== 'success') {
-    throw new Error('The wallet batch failed')
+    throw new BatchFailedError()
   }
   return last.transactionHash
 }

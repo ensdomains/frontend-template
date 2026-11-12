@@ -15,6 +15,7 @@ import {
   type Phase,
   type RegistrationParams,
   type RegistrationState,
+  findSavedRegistrations,
   useRegistration,
 } from '../hooks/useRegistration'
 import { useWalletOnNetwork } from '../hooks/useWalletOnNetwork'
@@ -88,8 +89,33 @@ function RegistrationForm({
     !!name.price &&
     validYears
 
+  // Registrations committed in an earlier visit, which can be picked up again
+  // even if the name no longer shows as available
+  const saved =
+    wallet.address && wallet.isOnNetwork
+      ? findSavedRegistrations(chainId, wallet.address)
+      : []
+
   return (
     <>
+      {saved.map((params) => (
+        <Notice key={`${params.label}:${params.years}:${params.token}`}>
+          <span {...styles.saved()}>
+            <span>
+              You have an unfinished registration for {params.label}.eth
+            </span>
+            <span {...styles.resume()}>
+              <Button
+                size="small"
+                tone="secondary"
+                onClick={() => onStart(params)}
+              >
+                Resume
+              </Button>
+            </span>
+          </span>
+        </Notice>
+      ))}
       <Card>
         <Input
           label="Name"
@@ -292,9 +318,8 @@ function RegistrationFlow({
         size="small"
         disabled={busy}
         onClick={() => {
-          // Before committing there's nothing to lose. After, the saved
-          // commitment is kept so this registration can be resumed.
-          if (state.phase === 'idle' || state.phase === 'setup') reset()
+          // Keeps any saved commitment, so this can be resumed later
+          reset()
           onExit()
         }}
       >
@@ -436,6 +461,15 @@ function Registered({
 
 namespace styles {
   export const available = style({ color: 'var(--green)' })
+
+  export const saved = style({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '1rem',
+  })
+
+  export const resume = style({ flex: 'none', width: '6.5rem' })
 
   export const fields = style({
     display: 'grid',
