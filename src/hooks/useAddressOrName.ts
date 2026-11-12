@@ -2,6 +2,7 @@ import { type Address, getAddress, isAddress } from 'viem'
 import { normalize } from 'viem/ens'
 import { useEnsAddress, useEnsName } from 'wagmi'
 
+import { normalizedOrNull } from '../lib/format'
 import { useNetwork } from '../lib/network'
 import { useDebounce } from './useDebounce'
 
@@ -51,7 +52,7 @@ export function useAddressOrName(input: string) {
   const reverse = useEnsName({
     address,
     chainId,
-    query: { enabled: !!address && isValidAddress },
+    query: { enabled: !!address && isValidAddress, select: normalizedOrNull },
   })
 
   const isLoading = input.trim() !== debounced || forward.isLoading
@@ -68,9 +69,13 @@ export function useAddressOrName(input: string) {
               ? 'Name does not resolve to an address'
               : undefined
 
-  const result: ResolvedInput | undefined = address
-    ? { address, name: name ?? reverse.data ?? undefined }
-    : undefined
+  // Never return a result for input the user has already changed, so nobody
+  // copies or sends to the previous address while the new one resolves
+  const isStale = input.trim() !== debounced
+  const result: ResolvedInput | undefined =
+    address && !isStale
+      ? { address, name: name ?? reverse.data ?? undefined }
+      : undefined
 
   return { result, isLoading, error }
 }
