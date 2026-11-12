@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { Hash } from 'viem'
-import { sendTransaction, waitForTransactionReceipt } from 'wagmi/actions'
+import { sendTransaction } from 'wagmi/actions'
 import { cx, style, variants } from 'zyzz'
 
 import { Identity } from '../components/Identity'
@@ -26,7 +26,9 @@ import {
   type PaymentToken,
   getErrorMessage,
   getSetPrimaryNameCall,
+  parseLabel,
 } from '../lib/registration'
+import { confirmTransaction } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 
 export function RegisterScreen() {
@@ -76,8 +78,15 @@ function RegistrationForm({
 
   const nameError =
     name.error ?? (name.isAvailable === false ? 'Not available' : undefined)
+  // Only start for the name that's on screen, never one checked a moment ago
+  const isChecked =
+    !name.isTyping && parseLabel(nameInput)?.label === name.label
   const canStart =
-    !!name.label && name.isAvailable === true && !!name.price && validYears
+    isChecked &&
+    !!name.label &&
+    name.isAvailable === true &&
+    !!name.price &&
+    validYears
 
   return (
     <>
@@ -162,6 +171,7 @@ function RegistrationForm({
           <Button
             disabled={!canStart}
             onClick={() =>
+              canStart &&
               wallet.address &&
               name.label &&
               onStart({
@@ -218,10 +228,10 @@ function RegistrationFlow({
           step="setup"
           title={
             state.batched
-              ? 'Set up resolver, approve, and commit'
-              : 'Set up resolver, approve, and commit (up to 3 transactions)'
+              ? 'Set up and commit'
+              : 'Set up and commit (up to 3 transactions)'
           }
-          description="Deploys (or reuses) your resolver with this name's ETH address, approves the exact price, and commits to the registration."
+          description="Deploys your resolver if you don't have one yet, approves the exact price, and commits to a hash of the registration, so the name stays private until it's registered."
         />
         <Step
           state={state}
@@ -239,13 +249,21 @@ function RegistrationFlow({
           state={state}
           step="register"
           title="Register"
-          description="Reveals the commitment and pays for the name."
+          description="Reveals the commitment, pays for the name, and points it at your address."
         />
       </ol>
 
+      {state.persisted === false && (
+        <Notice>
+          Your browser isn't saving progress. Keep this page open until the name
+          is registered.
+        </Notice>
+      )}
       {state.error && <Notice tone="error">{state.error}</Notice>}
 
-      {state.phase === 'wait' && ready && !state.error ? (
+      {state.needsRecord && !state.txStatus && !state.error ? (
+        <Button onClick={register}>Set {name}'s address</Button>
+      ) : state.phase === 'wait' && ready && !state.error ? (
         <Button onClick={register}>Register {name}</Button>
       ) : state.error ? (
         <Button
@@ -363,11 +381,7 @@ function Registered({
         account: params.account,
         ...getSetPrimaryNameCall(client, params.account, name),
       })
-      const receipt = await waitForTransactionReceipt(config, {
-        chainId: params.chainId,
-        hash,
-      })
-      if (receipt.status !== 'success') throw new Error('Transaction failed')
+      await confirmTransaction(params.chainId, hash)
       // Refresh every name shown on the page, like the one in the nav
       await queryClient.invalidateQueries()
       setPrimary({ status: 'done' })

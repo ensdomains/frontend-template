@@ -39,10 +39,10 @@ ENSv2 keeps the commit/reveal flow from v1, with a few differences that are easy
 
 1. **Payment is an ERC-20** (USDC or DAI), so the registrar needs an approval. This example approves the exact price, never an unlimited amount.
 2. **Names should point at a resolver the owner controls.** ENSjs defaults to no resolver, which registers a name that doesn't resolve. This example uses the owner's `OwnedResolver`: a `PermissionedResolver` proxy deployed through the ENS `VerifiableFactory` with CREATE2. Its address is derived from the owner, so it's known before it exists, goes into the commitment, and is reused for every name the owner registers. Only the owner can deploy it.
-3. **The address record is set before registering.** The resolver is initialized with the name's ETH address (or, if it already exists, the record is set directly), so the name resolves the moment it's registered.
+3. **Keep the name private until the reveal.** Only the commitment hash goes onchain before the wait. The name's ETH address is set on the resolver in the same batch as `register` (or right after it), so the name resolves as soon as it's registered without leaking it to the mempool early.
 4. **Primary names are a separate step**, through the reverse registrar.
 
-The setup (resolver, approval, commit) goes out as one [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792) batch for wallets that support atomic calls, or as separate transactions otherwise. Before anything is sent, the whole flow is simulated with `eth_simulateV1` so a registration that would fail costs nothing. The commit secret is saved in `localStorage`, so reloading during the 60 second wait doesn't lose the commitment.
+The setup (resolver, approval, commit) and the register step (register, address record) each go out as one [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792) batch for wallets that support atomic calls, or as separate transactions otherwise. Replaced or cancelled transactions are treated as failures ([`lib/transactions.ts`](src/lib/transactions.ts)). Before anything is sent, the whole flow is simulated with `eth_simulateV1` so a registration that would fail costs nothing. The commit secret is saved in `localStorage`, so reloading during the 60 second wait doesn't lose the commitment.
 
 On Sepolia, the payment tokens are mocks anyone can mint: connect on Sepolia and use the "get 100 test USDC" link under the form.
 

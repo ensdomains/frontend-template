@@ -17,6 +17,8 @@ This repo is a reference for integrating ENS into frontend apps. Read [README.md
 - **ENS records are untrusted input.** Render them as text. Only link to `https:` URLs.
 - **Transactions are built as `{ to, data }` calls** so they can be simulated (`eth_simulateV1`), batched (EIP-5792), or sent one by one with the same code.
 - **Approvals are exact amounts**, never unlimited.
+- **Never reveal a name before its commitment matures.** Calls sent before `register` must not contain the name in plaintext.
+- **Confirm transactions with `confirmTransaction`** (`src/lib/transactions.ts`), which rejects cancelled or replaced transactions.
 - **Styling** uses zyzz `style()` / `variants()` in a `namespace styles` at the bottom of each file, with the CSS variables from `src/globals.ts`.
 
 ## Checks

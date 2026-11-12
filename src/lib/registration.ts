@@ -12,8 +12,11 @@
  * personal `PermissionedResolver` ("OwnedResolver") deployed through the ENS
  * `VerifiableFactory` at an address derived from the owner, so it can be
  * known before it exists, put in the commitment, and reused for every name
- * the owner registers. The ETH address record is set on it in the same batch
- * as the commit, so the name resolves the moment it's registered.
+ * the owner registers. The ETH address record is set in the same batch as
+ * the register call, so the name resolves the moment it's registered.
+ *
+ * Nothing before the register step may contain the name in plaintext (only
+ * the commitment hash), or someone watching the mempool could front-run it.
  */
 import { getChainContractAddress } from '@ensdomains/ensjs/chain'
 import { getRegisterPrice } from '@ensdomains/ensjs/public'
@@ -261,9 +264,10 @@ function toCall(params: {
  * calls can be simulated, sent one at a time, or batched with EIP-5792
  * `wallet_sendCalls`.
  *
- * - `setup` runs before the wait: deploy the resolver (or just set the ETH
- *   record if it exists), approve payment if needed, and commit.
- * - `register` runs after the wait.
+ * - `setup` runs before the wait: deploy the resolver if needed, approve
+ *   payment if needed, and commit. None of it reveals the name.
+ * - `register` runs after the wait: register, then set the name's ETH
+ *   address on the resolver.
  */
 export async function getRegistrationCalls(
   client: EnsClient,
@@ -285,11 +289,11 @@ export async function getRegistrationCalls(
   const params = registrationParams(setup, resolver.address, paymentToken)
   const setEthAddress = encodeSetEthAddress(name, setup.account)
 
-  const resolverCall: Call = resolver.isDeployed
-    ? // Already deployed for an earlier name: add this name's record
-      { to: resolver.address, data: setEthAddress }
-    : // Deploy it, granting the owner every role and setting the record
-      {
+  // Deploy the resolver on the first registration, granting the owner every
+  // role. No records yet: setting this name's record now would reveal it.
+  const deployResolverCall: Call | undefined = resolver.isDeployed
+    ? undefined
+    : {
         to: resolver.factory,
         data: encodeFunctionData({
           abi: verifiableFactoryAbi,
@@ -303,10 +307,7 @@ export async function getRegistrationCalls(
             encodeFunctionData({
               abi: permissionedResolverAbi,
               functionName: 'initialize',
-              args: [
-                [{ account: setup.account, roleBitmap: ALL_ROLES }],
-                [setEthAddress],
-              ],
+              args: [[{ account: setup.account, roleBitmap: ALL_ROLES }], []],
             }),
           ],
         }),
@@ -332,8 +333,15 @@ export async function getRegistrationCalls(
     resolver: resolver.address,
     price: total,
     paymentToken,
-    setup: [resolverCall, ...(approveCall ? [approveCall] : []), commitCall],
-    register: toCall(registerWrite),
+    setup: [
+      ...(deployResolverCall ? [deployResolverCall] : []),
+      ...(approveCall ? [approveCall] : []),
+      commitCall,
+    ],
+    register: [
+      toCall(registerWrite),
+      { to: resolver.address, data: setEthAddress },
+    ],
     /** The register call with its ABI, for `simulateContract` */
     registerWrite: {
       address: registerWrite.address,
@@ -354,7 +362,7 @@ export async function getRegistrationCalls(
 export async function simulateRegistration(
   client: EnsClient,
   account: Address,
-  calls: { setup: Call[]; register: Call }
+  calls: { setup: Call[]; register: Call[] }
 ) {
   const { timestamp } = await getBlock(client)
   const from = (call: Call) => ({ account, ...call })
@@ -365,7 +373,7 @@ export async function simulateRegistration(
       {
         // Comfortably past the minimum commitment age
         blockOverrides: { time: timestamp + 600n },
-        calls: [from(calls.register)],
+        calls: calls.register.map(from),
       },
     ],
   })
