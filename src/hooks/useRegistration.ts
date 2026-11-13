@@ -1,6 +1,12 @@
 import { randomSecret } from '@ensdomains/ensjs/utils'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { type Address, type Hash, type Hex, erc20Abi } from 'viem'
+import {
+  type Address,
+  type Hash,
+  type Hex,
+  WaitForTransactionReceiptTimeoutError,
+  erc20Abi,
+} from 'viem'
 import {
   getCapabilities,
   readContract,
@@ -19,6 +25,7 @@ import {
   getErrorMessage,
   getRegistrationCalls,
   getRevertError,
+  hasTxLanded,
   parseLabel,
   simulateRegistration,
 } from '../lib/registration'
@@ -28,6 +35,7 @@ import {
   confirmBatch,
   confirmTransaction,
   isAtomicBatchSupported,
+  isTransactionGone,
 } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 import { useEnsClient } from './useEnsClient'
@@ -303,19 +311,40 @@ export function useRegistration(params: RegistrationParams) {
 
   /**
    * Waits for a sent transaction and records what it did. A definite failure
-   * forgets it; any other error (e.g. a timeout) keeps it, so it's checked
-   * again instead of being sent twice.
+   * forgets it; an unknown outcome (e.g. an RPC error) keeps it, so it's
+   * checked again instead of being sent twice.
    */
   const settle = useCallback(
     async (pending: NonNullable<Draft['pending']>) => {
-      let landed: Hash
-      try {
-        landed = await confirmTransaction(params.chainId, pending.hash)
-      } catch (err) {
-        if (err instanceof TransactionFailedError) {
-          saveDraft({ ...draftRef.current!, pending: undefined })
+      const forget = () =>
+        saveDraft({ ...draftRef.current!, pending: undefined })
+      let landed: Hash | undefined
+      while (!landed) {
+        try {
+          landed = await confirmTransaction(params.chainId, pending.hash, {
+            timeout: 60_000,
+          })
+        } catch (err) {
+          if (err instanceof TransactionFailedError) forget()
+          if (!(err instanceof WaitForTransactionReceiptTimeoutError)) throw err
+          if (!mounted.current) throw new FlowClosedError()
+          // Still pending after a minute: keep waiting. Gone entirely: it was
+          // replaced or dropped (e.g. while the page was closed), so check
+          // whether its effect happened instead.
+          if (!(await isTransactionGone(params.chainId, pending.hash))) continue
+          const calls = await getRegistrationCalls(client, {
+            ...params,
+            secret: draftRef.current!.secret,
+          })
+          if (await hasTxLanded(client, pending.kind, params, calls)) {
+            landed = pending.hash // The original hash, standing in for its replacement
+          } else {
+            forget()
+            throw new TransactionFailedError(
+              'The transaction was dropped or replaced. Please try again'
+            )
+          }
         }
-        throw err
       }
       const next: Draft = { ...draftRef.current!, pending: undefined }
       if (pending.kind === 'commit') next.commitHash = landed
@@ -323,7 +352,7 @@ export function useRegistration(params: RegistrationParams) {
       saveDraft(next)
       return landed
     },
-    [params, saveDraft]
+    [client, params, saveDraft]
   )
 
   /** Sends one call and waits for it, marking its progress in `state.txs` */
@@ -494,13 +523,12 @@ export function useRegistration(params: RegistrationParams) {
         const commitHash = await finishBatch(draft.batch.id)
         saveDraft({ ...draftRef.current!, commitHash })
       } else if (draft.commitHash) {
-        // Resumed after a reload: make sure the commit actually landed
+        // Resumed after a reload: make sure the commitment is still onchain.
+        // Read errors keep it, so a flaky RPC can't throw the commit away.
         update({ phase: 'setup', txStatus: 'confirm' })
-        try {
-          await confirmTransaction(params.chainId, draft.commitHash)
-        } catch (err) {
+        if (!(await hasTxLanded(client, 'commit', params, calls))) {
           saveDraft({ secret: draft.secret })
-          throw err
+          throw new Error('Your commitment is no longer onchain. Try again')
         }
       } else {
         update({ phase: 'setup' })

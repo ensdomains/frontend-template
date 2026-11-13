@@ -19,7 +19,7 @@
  * the commitment hash), or someone watching the mempool could front-run it.
  */
 import { getChainContractAddress } from '@ensdomains/ensjs/chain'
-import { getRegisterPrice } from '@ensdomains/ensjs/public'
+import { getAvailable, getRegisterPrice } from '@ensdomains/ensjs/public'
 import {
   commitNameWriteParameters,
   registerNameWriteParameters,
@@ -46,7 +46,13 @@ import {
   toHex,
 } from 'viem'
 import { toAccount } from 'viem/accounts'
-import { getBlock, getCode, readContract, simulateBlocks } from 'viem/actions'
+import {
+  getBlock,
+  getCode,
+  getEnsAddress,
+  readContract,
+  simulateBlocks,
+} from 'viem/actions'
 import { normalize, packetToBytes } from 'viem/ens'
 
 import type { EnsContractsChain } from '../hooks/useEnsClient'
@@ -393,11 +399,14 @@ export async function getRegistrationCalls(
         }
       : undefined
 
-  const commitCall = toCall(commitNameWriteParameters(sender, params))
+  const commitWrite = commitNameWriteParameters(sender, params)
+  const commitCall = toCall(commitWrite)
   const registerWrite = registerNameWriteParameters(sender, params)
 
   return {
     resolver: resolver.address,
+    /** The hash committed to in `commit`, and revealed by `register` */
+    commitment: commitWrite.args[0],
     price: total,
     paymentToken,
     setup: [
@@ -427,6 +436,53 @@ export async function getRegistrationCalls(
       functionName: registerWrite.functionName,
       args: registerWrite.args,
     },
+  }
+}
+
+const commitmentAtAbi = parseAbi([
+  'function commitmentAt(bytes32 commitment) view returns (uint64)',
+])
+
+/**
+ * Whether a transaction's effect is visible onchain. For when its hash can't
+ * say, e.g. it was sped up or cancelled while the page was closed and the
+ * original is gone. `undefined` for kinds that don't need it: the resolver and
+ * approval are re-read from chain state before every step anyway.
+ */
+export async function hasTxLanded(
+  client: EnsClient,
+  kind: TxKind,
+  setup: Pick<RegistrationSetup, 'label' | 'account'>,
+  calls: { commitment: Hex }
+): Promise<boolean | undefined> {
+  const commitmentAt = () =>
+    readContract(client, {
+      address: getRegistrarAddress(client),
+      abi: commitmentAtAbi,
+      functionName: 'commitmentAt',
+      args: [calls.commitment],
+    })
+
+  switch (kind) {
+    case 'commit':
+      return (await commitmentAt()) > 0n
+    case 'register': {
+      // Registering consumes the commitment. Taken and still committed means
+      // someone else registered it.
+      const [available, committedAt] = await Promise.all([
+        getAvailable(client, { name: `${setup.label}.eth` }),
+        commitmentAt(),
+      ])
+      return !available && committedAt === 0n
+    }
+    case 'record': {
+      const address = await getEnsAddress(client, {
+        name: `${setup.label}.eth`,
+      })
+      return address?.toLowerCase() === setup.account.toLowerCase()
+    }
+    default:
+      return undefined
   }
 }
 
