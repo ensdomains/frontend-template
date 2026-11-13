@@ -1,5 +1,8 @@
 # ENS Frontend Examples
 
+> [!WARNING]
+> This is reference code for learning how to integrate ENS. It is not production-ready and hasn't been audited. Review and test anything you copy before relying on it.
+
 Reference implementations of ENS features for frontend apps, built with [wagmi](https://wagmi.sh), [viem](https://viem.sh), and [ENSjs](https://github.com/ensdomains/ensjs). Every example works on Ethereum mainnet and Sepolia: pick one with the toggle in the nav bar.
 
 The code is meant to be read and copied. ENS logic lives in small, framework-free functions and hooks, separate from the UI.
