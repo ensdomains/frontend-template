@@ -232,6 +232,7 @@ export function useRegistration(params: RegistrationParams) {
     txs: {},
   })
   const running = useRef(false)
+  // False once the flow closes, which stops any further wallet requests
   const mounted = useRef(true)
   // The source of truth for progress, starting from what was saved before a
   // reload. localStorage is only a backup. Render this hook with a `key` per
@@ -246,8 +247,9 @@ export function useRegistration(params: RegistrationParams) {
     }
   }, [])
 
+  // Updates after unmount are ignored by React, so these need no guard
   const update = useCallback((next: Partial<RegistrationState>) => {
-    if (mounted.current) setState((prev) => ({ ...prev, ...next }))
+    setState((prev) => ({ ...prev, ...next }))
   }, [])
 
   /** Lists the transactions a step is about to send */
@@ -257,16 +259,13 @@ export function useRegistration(params: RegistrationParams) {
         kind,
         status: done.includes(kind) ? ('done' as const) : ('pending' as const),
       }))
-      if (mounted.current) {
-        setState((prev) => ({ ...prev, txs: { ...prev.txs, [step]: txs } }))
-      }
+      setState((prev) => ({ ...prev, txs: { ...prev.txs, [step]: txs } }))
     },
     []
   )
 
   const markTx = useCallback(
     (step: Step, kind: TxKind, status: TxProgress['status']) => {
-      if (!mounted.current) return
       setState((prev) => ({
         ...prev,
         txs: {

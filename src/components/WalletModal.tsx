@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { renderSVG } from 'uqr'
-import { type Connector, useConnect, useConnection, useConnectors } from 'wagmi'
+import { type Connector, useConnect, useConnectors } from 'wagmi'
 import { style } from 'zyzz'
 
 import { Dialog } from './Dialog'
@@ -31,15 +31,9 @@ export function WalletModal({
   onClose: () => void
 }) {
   const options = useWalletOptions()
-  const { isConnected } = useConnection()
   const { mutate: connect, isPending, variables, reset, error } = useConnect()
   const [uri, setUri] = useState<string>()
   const [copied, setCopied] = useState(false)
-
-  // Close once a wallet connects
-  useEffect(() => {
-    if (isConnected && open) onClose()
-  }, [isConnected, open, onClose])
 
   // Start fresh each time it opens (adjusting state during render, not in an
   // effect: https://react.dev/learn/you-might-not-need-an-effect)
@@ -67,13 +61,14 @@ export function WalletModal({
         { connector },
         {
           onSettled: () => connector.emitter.off('message', onMessage),
+          onSuccess: onClose,
           onError: () => setUri(undefined),
         }
       )
       return
     }
 
-    connect({ connector })
+    connect({ connector }, { onSuccess: onClose })
   }
 
   const pendingId = isPending ? variables?.connector : undefined
