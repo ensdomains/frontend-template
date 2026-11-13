@@ -37,6 +37,8 @@ export function Link({
   ...props
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: `/${string}` }) {
   return (
+    // Content comes from `props.children`
+    // oxlint-disable-next-line jsx-a11y/anchor-has-content
     <a
       href={href}
       onClick={(e) => {

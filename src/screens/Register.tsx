@@ -6,8 +6,8 @@ import { cx, style, variants } from 'zyzz'
 import { Identity } from '../components/Identity'
 import { Page } from '../components/Page'
 import { TestnetFaucet } from '../components/TestnetFaucet'
-import { WalletModal } from '../components/WalletModal'
 import { Button, Card, Input, Notice, Row, Spinner } from '../components/ui'
+import { WalletModal } from '../components/WalletModal'
 import { useAtomicBatching } from '../hooks/useAtomicBatching'
 import { useEnsClient } from '../hooks/useEnsClient'
 import { useNameAvailability } from '../hooks/useNameAvailability'
@@ -39,12 +39,15 @@ import { config } from '../lib/wagmi'
 export function RegisterScreen() {
   const { chainId } = useNetwork()
   // Locked in once the user starts, so the saved commitment always matches
-  const [params, setParams] = useState<RegistrationParams>()
+  const [started, setParams] = useState<RegistrationParams>()
 
-  // Switching networks or accounts abandons the form (a saved commitment is
+  // Switching networks or accounts closes the flow (a saved commitment is
   // kept and picked up again if the same registration is restarted)
   const { address } = useWalletOnNetwork()
-  useEffect(() => setParams(undefined), [chainId, address])
+  const params =
+    started?.chainId === chainId && started.account === address
+      ? started
+      : undefined
 
   return (
     <Page
@@ -53,7 +56,12 @@ export function RegisterScreen() {
       source="src/lib/registration.ts"
     >
       {params ? (
-        <RegistrationFlow params={params} onExit={() => setParams(undefined)} />
+        <RegistrationFlow
+          // A fresh flow (and saved progress) per registration
+          key={JSON.stringify(params)}
+          params={params}
+          onExit={() => setParams(undefined)}
+        />
       ) : (
         <RegistrationForm onStart={setParams} />
       )}
@@ -274,8 +282,7 @@ function RegistrationFlow({
   ]
   const name = `${params.label}.eth`
   const busy = !!state.txStatus || !!state.checking
-  const ready =
-    state.phase === 'wait' && !!state.readyAt && state.readyAt <= Date.now()
+  const ready = state.phase === 'wait' && !!state.ready
 
   // Kick off the setup as soon as the flow opens. If this registration was
   // already committed (e.g. before a reload), `start` resumes from there.
@@ -417,8 +424,7 @@ function Step({
   symbol?: string
 }) {
   // Once the wait is over, the register step is up next (waiting on a click)
-  const isReady =
-    state.phase === 'wait' && !!state.readyAt && state.readyAt <= Date.now()
+  const isReady = state.phase === 'wait' && !!state.ready
   const phase = isReady ? 'register' : state.phase
   const current = STEP_ORDER.indexOf(phase)
   const index = STEP_ORDER.indexOf(step)
@@ -476,7 +482,7 @@ function Step({
 }
 
 function Countdown({ until }: { until: number }) {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)

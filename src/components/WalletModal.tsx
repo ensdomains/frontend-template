@@ -41,13 +41,21 @@ export function WalletModal({
     if (isConnected && open) onClose()
   }, [isConnected, open, onClose])
 
-  useEffect(() => {
+  // Start fresh each time it opens (adjusting state during render, not in an
+  // effect: https://react.dev/learn/you-might-not-need-an-effect)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
     if (!open) {
       setUri(undefined)
       setCopied(false)
-      reset()
     }
-  }, [open, reset])
+  }
+
+  function close() {
+    reset() // Clears a previous attempt's error
+    onClose()
+  }
 
   function handleConnect(connector: Connector) {
     if (connector.type === 'walletConnect') {
@@ -73,7 +81,7 @@ export function WalletModal({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={uri ? 'Scan with your wallet' : 'Connect a wallet'}
     >
       {uri ? (

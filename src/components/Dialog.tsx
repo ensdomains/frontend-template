@@ -38,6 +38,7 @@ export function Dialog({
   }, [open])
 
   return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- Escape and the close button cover keyboards
     <dialog
       ref={ref}
       onCancel={(e) => {
@@ -45,6 +46,8 @@ export function Dialog({
         e.preventDefault()
         onClose()
       }}
+      // Closes on a backdrop click. Keyboard users close it with Escape
+      // (onCancel above) or the close button.
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}

@@ -144,7 +144,8 @@ export function yearsToSeconds(years: number) {
 // -----------------------------------------------------------------------------
 
 export type ParsedLabel =
-  { label: string; error?: undefined } | { label?: undefined; error: string }
+  | { label: string; error?: undefined }
+  | { label?: undefined; error: string }
 
 /**
  * Turns user input into a normalized .eth label (the part before ".eth").
