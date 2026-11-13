@@ -19,7 +19,7 @@
  * the commitment hash), or someone watching the mempool could front-run it.
  */
 import { getChainContractAddress } from '@ensdomains/ensjs/chain'
-import { getAvailable, getRegisterPrice } from '@ensdomains/ensjs/public'
+import { getRegisterPrice } from '@ensdomains/ensjs/public'
 import {
   commitNameWriteParameters,
   registerNameWriteParameters,
@@ -333,6 +333,39 @@ function toCall(params: {
 }
 
 /**
+ * The commitment hash for a registration. Needs no price, so it works even
+ * after the name is registered (when price lookups revert).
+ */
+export async function getCommitment(
+  client: EnsClient,
+  setup: RegistrationSetup
+) {
+  const resolver = await getOwnedResolver(client, setup.account)
+  const params = registrationParams(
+    setup,
+    resolver.address,
+    getPaymentTokenAddress(client, setup.token)
+  )
+  return commitNameWriteParameters(asSender(client, setup.account), params)
+    .args[0]
+}
+
+/**
+ * The call that points a registered name at its owner's address. Needs no
+ * price, so it can be retried after the name is registered.
+ */
+export async function getRecordCall(
+  client: EnsClient,
+  setup: Pick<RegistrationSetup, 'account' | 'label'>
+): Promise<Call> {
+  const resolver = await getOwnedResolver(client, setup.account)
+  return {
+    to: resolver.address,
+    data: encodeSetEthAddress(`${setup.label}.eth`, setup.account),
+  }
+}
+
+/**
  * Builds every call in a registration as raw `{ to, data }`, so the same
  * calls can be simulated, sent one at a time, or batched with EIP-5792
  * `wallet_sendCalls`.
@@ -439,8 +472,9 @@ export async function getRegistrationCalls(
   }
 }
 
-const commitmentAtAbi = parseAbi([
+const registrarStateAbi = parseAbi([
   'function commitmentAt(bytes32 commitment) view returns (uint64)',
+  'function isAvailable(string label) view returns (bool)',
 ])
 
 /**
@@ -453,14 +487,17 @@ export async function hasTxLanded(
   client: EnsClient,
   kind: TxKind,
   setup: Pick<RegistrationSetup, 'label' | 'account'>,
-  calls: { commitment: Hex }
+  { commitment, blockNumber }: { commitment: Hex; blockNumber: bigint }
 ): Promise<boolean | undefined> {
+  // Every read at the same block, so they describe one consistent state
+  const registrar = getRegistrarAddress(client)
   const commitmentAt = () =>
     readContract(client, {
-      address: getRegistrarAddress(client),
-      abi: commitmentAtAbi,
+      address: registrar,
+      abi: registrarStateAbi,
       functionName: 'commitmentAt',
-      args: [calls.commitment],
+      args: [commitment],
+      blockNumber,
     })
 
   switch (kind) {
@@ -468,9 +505,16 @@ export async function hasTxLanded(
       return (await commitmentAt()) > 0n
     case 'register': {
       // Registering consumes the commitment. Taken and still committed means
-      // someone else registered it.
+      // someone else registered it. Only meaningful once our commit landed,
+      // which is always true by the time a register is sent.
       const [available, committedAt] = await Promise.all([
-        getAvailable(client, { name: `${setup.label}.eth` }),
+        readContract(client, {
+          address: registrar,
+          abi: registrarStateAbi,
+          functionName: 'isAvailable',
+          args: [setup.label],
+          blockNumber,
+        }),
         commitmentAt(),
       ])
       return !available && committedAt === 0n
@@ -478,6 +522,7 @@ export async function hasTxLanded(
     case 'record': {
       const address = await getEnsAddress(client, {
         name: `${setup.label}.eth`,
+        blockNumber,
       })
       return address?.toLowerCase() === setup.account.toLowerCase()
     }

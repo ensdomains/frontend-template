@@ -8,6 +8,7 @@ import {
   erc20Abi,
 } from 'viem'
 import {
+  getBlockNumber,
   getCapabilities,
   readContract,
   sendCalls,
@@ -22,7 +23,9 @@ import {
   type PaymentToken,
   type TxKind,
   getPaymentToken,
+  getCommitment,
   getErrorMessage,
+  getRecordCall,
   getRegistrationCalls,
   getRevertError,
   hasTxLanded,
@@ -34,8 +37,10 @@ import {
   TransactionFailedError,
   confirmBatch,
   confirmTransaction,
+  findReceipt,
+  findTransaction,
+  getMinedNonceCount,
   isAtomicBatchSupported,
-  isTransactionGone,
 } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 import { useEnsClient } from './useEnsClient'
@@ -99,7 +104,7 @@ type Draft = {
    * moment the wallet returns its hash, so a reload checks it instead of
    * sending something else (e.g. a second register).
    */
-  pending?: { hash: Hash; kind: TxKind }
+  pending?: { hash: Hash; kind: TxKind; nonce?: number }
 }
 
 const TX_KINDS: readonly TxKind[] = [
@@ -144,7 +149,13 @@ function loadDraft(p: RegistrationParams): Draft | undefined {
       registerHash: HASH.test(raw.registerHash) ? raw.registerHash : undefined,
       pending:
         HASH.test(raw.pending?.hash) && TX_KINDS.includes(raw.pending.kind)
-          ? { hash: raw.pending.hash, kind: raw.pending.kind }
+          ? {
+              hash: raw.pending.hash,
+              kind: raw.pending.kind,
+              nonce: Number.isSafeInteger(raw.pending.nonce)
+                ? raw.pending.nonce
+                : undefined,
+            }
           : undefined,
     }
   } catch {
@@ -310,41 +321,64 @@ export function useRegistration(params: RegistrationParams) {
   }, [params])
 
   /**
-   * Waits for a sent transaction and records what it did. A definite failure
-   * forgets it; an unknown outcome (e.g. an RPC error) keeps it, so it's
-   * checked again instead of being sent twice.
+   * Waits for a sent transaction and records what it did. It's forgotten only
+   * once it definitely failed. Not finding it is never enough on its own (the
+   * RPC may not have seen it yet, or the wallet may hold it privately).
+   *
+   * If it's replaced while the page is open, viem follows the replacement. If
+   * it was replaced while the page was closed, the node may no longer know the
+   * original: once a mined transaction has used its nonce, the original can
+   * never mine, so whether the step happened is read from chain state.
    */
   const settle = useCallback(
     async (pending: NonNullable<Draft['pending']>) => {
       const forget = () =>
         saveDraft({ ...draftRef.current!, pending: undefined })
+      let { nonce } = pending
       let landed: Hash | undefined
       while (!landed) {
         try {
           landed = await confirmTransaction(params.chainId, pending.hash, {
             timeout: 60_000,
           })
+          break
         } catch (err) {
           if (err instanceof TransactionFailedError) forget()
           if (!(err instanceof WaitForTransactionReceiptTimeoutError)) throw err
-          if (!mounted.current) throw new FlowClosedError()
-          // Still pending after a minute: keep waiting. Gone entirely: it was
-          // replaced or dropped (e.g. while the page was closed), so check
-          // whether its effect happened instead.
-          if (!(await isTransactionGone(params.chainId, pending.hash))) continue
-          const calls = await getRegistrationCalls(client, {
-            ...params,
-            secret: draftRef.current!.secret,
-          })
-          if (await hasTxLanded(client, pending.kind, params, calls)) {
-            landed = pending.hash // The original hash, standing in for its replacement
-          } else {
-            forget()
-            throw new TransactionFailedError(
-              'The transaction was dropped or replaced. Please try again'
-            )
-          }
         }
+        if (!mounted.current) throw new FlowClosedError()
+
+        // Remember the nonce once the node has seen the transaction
+        if (nonce === undefined) {
+          const tx = await findTransaction(params.chainId, pending.hash)
+          if (tx) {
+            nonce = tx.nonce
+            saveDraft({ ...draftRef.current!, pending: { ...pending, nonce } })
+          }
+          continue
+        }
+
+        // Nonce not used yet, or this transaction itself mined: keep waiting
+        const mined = await getMinedNonceCount(params.chainId, params.account)
+        if (mined.count <= nonce) continue
+        if (await findReceipt(params.chainId, pending.hash)) continue
+
+        // Another transaction used the nonce. Did it do the same thing?
+        const commitment = await getCommitment(client, {
+          ...params,
+          secret: draftRef.current!.secret,
+        })
+        const didLand = await hasTxLanded(client, pending.kind, params, {
+          commitment,
+          blockNumber: mined.blockNumber,
+        })
+        if (!didLand) {
+          forget()
+          throw new TransactionFailedError(
+            'The transaction was cancelled or replaced in your wallet'
+          )
+        }
+        landed = pending.hash // The original hash, standing in for its replacement
       }
       const next: Draft = { ...draftRef.current!, pending: undefined }
       if (pending.kind === 'commit') next.commitHash = landed
@@ -488,10 +522,10 @@ export function useRegistration(params: RegistrationParams) {
         return
       }
       const draft = draftRef.current!
-      const calls = await getRegistrationCalls(client, {
-        ...params,
-        secret: draft.secret,
-      })
+      const setup = { ...params, secret: draft.secret }
+      // Built only when still needed: once the name is registered, its price
+      // lookup reverts, which must not block the recovery paths below
+      let calls: Awaited<ReturnType<typeof getRegistrationCalls>> | undefined
 
       if (draft.batch?.step === 'register') {
         // A register batch sent before a reload: finish it, never resend
@@ -526,12 +560,20 @@ export function useRegistration(params: RegistrationParams) {
         // Resumed after a reload: make sure the commitment is still onchain.
         // Read errors keep it, so a flaky RPC can't throw the commit away.
         update({ phase: 'setup', txStatus: 'confirm' })
-        if (!(await hasTxLanded(client, 'commit', params, calls))) {
+        const committed = await hasTxLanded(client, 'commit', params, {
+          commitment: await getCommitment(client, setup),
+          blockNumber: await getBlockNumber(config, {
+            chainId: params.chainId,
+            cacheTime: 0,
+          }),
+        })
+        if (!committed) {
           saveDraft({ secret: draft.secret })
           throw new Error('Your commitment is no longer onchain. Try again')
         }
       } else {
         update({ phase: 'setup' })
+        calls = await getRegistrationCalls(client, setup)
 
         const balance = await readContract(config, {
           chainId: params.chainId,
@@ -578,6 +620,7 @@ export function useRegistration(params: RegistrationParams) {
       }
 
       update({ hashes: { commit: draftRef.current?.commitHash } })
+      calls ??= await getRegistrationCalls(client, setup)
       await waitForCommitment(calls.registerWrite)
     } catch (err) {
       if (err instanceof FlowClosedError) return
@@ -627,17 +670,22 @@ export function useRegistration(params: RegistrationParams) {
         })
         return
       }
-      if (!draft?.commitHash) {
-        throw new Error('No commitment found. Please start again')
-      }
-      const calls = await getRegistrationCalls(client, {
-        ...params,
-        secret: draft.secret,
-      })
-      const [registerCall, setAddressCall] = calls.register
-      let registerHash = draft.registerHash
+      let registerHash = draft?.registerHash
 
-      if (!registerHash) {
+      if (registerHash) {
+        // Registered earlier, but setting the record didn't finish. Built
+        // without a price lookup, which reverts once the name is registered.
+        planTxs('register', ['register', 'record'], ['register'])
+        await send(await getRecordCall(client, params), 'register', 'record')
+      } else {
+        if (!draft?.commitHash) {
+          throw new Error('No commitment found. Please start again')
+        }
+        const calls = await getRegistrationCalls(client, {
+          ...params,
+          secret: draft.secret,
+        })
+        const [registerCall, setAddressCall] = calls.register
         if (await supportsAtomicBatch(params.chainId)) {
           // Approve if still needed, register, and set the record, all in
           // one confirmation
@@ -658,17 +706,13 @@ export function useRegistration(params: RegistrationParams) {
           update({ needsRecord: true })
           await send(setAddressCall, 'register', 'record')
         }
-      } else {
-        // Registered earlier, but setting the record didn't finish
-        planTxs('register', ['register', 'record'], ['register'])
-        await send(setAddressCall, 'register', 'record')
       }
 
       saveDraft(undefined)
       update({
         phase: 'done',
         txStatus: undefined,
-        hashes: { commit: draft.commitHash, register: registerHash },
+        hashes: { commit: draft?.commitHash, register: registerHash },
       })
     } catch (err) {
       if (err instanceof FlowClosedError) return

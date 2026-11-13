@@ -1,5 +1,16 @@
-import { type Hash, TransactionNotFoundError } from 'viem'
-import { getTransaction, waitForTransactionReceipt } from 'viem/actions'
+import {
+  type Address,
+  type Hash,
+  TransactionNotFoundError,
+  TransactionReceiptNotFoundError,
+} from 'viem'
+import {
+  getBlockNumber,
+  getTransaction,
+  getTransactionCount,
+  getTransactionReceipt,
+  waitForTransactionReceipt,
+} from 'viem/actions'
 import { waitForCallsStatus } from 'wagmi/actions'
 
 import { config } from './wagmi'
@@ -21,11 +32,12 @@ export class TransactionFailedError extends Error {}
  *
  * Throws `TransactionFailedError` when it definitely failed. Anything else,
  * including running out of `timeout`, means the outcome isn't known yet.
+ * Waits indefinitely by default (`timeout: 0`).
  */
 export async function confirmTransaction(
   chainId: number,
   hash: Hash,
-  { timeout }: { timeout?: number } = {}
+  { timeout = 0 }: { timeout?: number } = {}
 ) {
   let replacedReason: string | undefined
   // viem's action rather than wagmi's, which throws its own error for a
@@ -49,19 +61,36 @@ export async function confirmTransaction(
   return receipt.transactionHash
 }
 
-/**
- * Whether the node no longer knows about a transaction (not pending, not
- * mined), e.g. after it was replaced while the page was closed. Its replacement
- * can't be found from the hash alone, so check its effect onchain instead.
- */
-export async function isTransactionGone(chainId: number, hash: Hash) {
+/** A transaction as the node sees it, or undefined if it doesn't know it */
+export async function findTransaction(chainId: number, hash: Hash) {
   try {
-    await getTransaction(getClient(chainId), { hash })
-    return false
+    return await getTransaction(getClient(chainId), { hash })
   } catch (err) {
-    if (err instanceof TransactionNotFoundError) return true
+    if (err instanceof TransactionNotFoundError) return undefined
     throw err
   }
+}
+
+/** A mined transaction's receipt, or undefined if it isn't mined */
+export async function findReceipt(chainId: number, hash: Hash) {
+  try {
+    return await getTransactionReceipt(getClient(chainId), { hash })
+  } catch (err) {
+    if (err instanceof TransactionReceiptNotFoundError) return undefined
+    throw err
+  }
+}
+
+/**
+ * How many transactions `address` has had mined, at the latest block. Once
+ * this is past a transaction's nonce, that nonce is used: if the transaction
+ * itself didn't mine, it never will.
+ */
+export async function getMinedNonceCount(chainId: number, address: Address) {
+  const client = getClient(chainId)
+  const blockNumber = await getBlockNumber(client, { cacheTime: 0 })
+  const count = await getTransactionCount(client, { address, blockNumber })
+  return { count, blockNumber }
 }
 
 function getClient(chainId: number) {
