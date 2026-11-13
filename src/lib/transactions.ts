@@ -1,5 +1,6 @@
-import type { Hash } from 'viem'
-import { waitForCallsStatus, waitForTransactionReceipt } from 'wagmi/actions'
+import { type Hash, TransactionNotFoundError } from 'viem'
+import { getTransaction, waitForTransactionReceipt } from 'viem/actions'
+import { waitForCallsStatus } from 'wagmi/actions'
 
 import { config } from './wagmi'
 
@@ -17,12 +18,21 @@ export class TransactionFailedError extends Error {}
  * transaction. viem follows the replacement, so a successful receipt alone
  * doesn't mean *this* call ran: a cancellation also "succeeds". Only a
  * repriced transaction (same call, higher gas) counts.
+ *
+ * Throws `TransactionFailedError` when it definitely failed. Anything else,
+ * including running out of `timeout`, means the outcome isn't known yet.
  */
-export async function confirmTransaction(chainId: number, hash: Hash) {
+export async function confirmTransaction(
+  chainId: number,
+  hash: Hash,
+  { timeout }: { timeout?: number } = {}
+) {
   let replacedReason: string | undefined
-  const receipt = await waitForTransactionReceipt(config, {
-    chainId: chainId as (typeof config.chains)[number]['id'],
+  // viem's action rather than wagmi's, which throws its own error for a
+  // reverted receipt instead of returning it
+  const receipt = await waitForTransactionReceipt(getClient(chainId), {
     hash,
+    timeout,
     onReplaced: (replacement) => {
       replacedReason = replacement.reason
     },
@@ -37,6 +47,27 @@ export async function confirmTransaction(chainId: number, hash: Hash) {
     throw new TransactionFailedError('The transaction failed')
   }
   return receipt.transactionHash
+}
+
+/**
+ * Whether the node no longer knows about a transaction (not pending, not
+ * mined), e.g. after it was replaced while the page was closed. Its replacement
+ * can't be found from the hash alone, so check its effect onchain instead.
+ */
+export async function isTransactionGone(chainId: number, hash: Hash) {
+  try {
+    await getTransaction(getClient(chainId), { hash })
+    return false
+  } catch (err) {
+    if (err instanceof TransactionNotFoundError) return true
+    throw err
+  }
+}
+
+function getClient(chainId: number) {
+  return config.getClient({
+    chainId: chainId as (typeof config.chains)[number]['id'],
+  })
 }
 
 /** The wallet reported that a batch definitely failed (nothing ran) */
