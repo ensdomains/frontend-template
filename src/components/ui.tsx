@@ -69,9 +69,16 @@ export function Input({
         <input
           id={id}
           aria-invalid={!!error}
+          // ENS names and addresses aren't words or credentials: turn off
+          // autocorrect, autofill, and password manager overlays
           spellCheck={false}
           autoCapitalize="none"
+          autoCorrect="off"
           autoComplete="off"
+          data-1p-ignore=""
+          data-lpignore="true"
+          data-bwignore=""
+          data-form-type="other"
           {...props}
           {...styles.input()}
         />
@@ -205,10 +212,10 @@ namespace styles {
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: '1rem',
-    minHeight: '2.5rem',
+    minHeight: '3rem',
+    paddingBlock: '0.5rem',
     borderBottom: '1px solid var(--border)',
-    paddingBottom: '0.5rem',
-    ':last-child': { borderBottom: 'none', paddingBottom: 0 },
+    ':last-child': { borderBottom: 'none' },
   })
 
   export const rowLabel = style({
@@ -219,6 +226,10 @@ namespace styles {
   })
 
   export const rowValue = style({
+    // Flex (not inline) so avatars, spinners, and text center on the label
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     minWidth: 0,
     fontFamily: 'var(--font-mono)',
     fontSize: '0.9375rem',

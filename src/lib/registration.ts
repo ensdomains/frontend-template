@@ -6,7 +6,7 @@
  * 1. Commit to a hash of the registration, so nobody can front-run it.
  * 2. Wait at least 60 seconds (`MIN_COMMITMENT_AGE`).
  * 3. Register, revealing the details. The registrar takes payment in an
- *    ERC-20 (USDC or DAI), so it needs an approval first.
+ *    ERC-20 (see `PAYMENT_TOKENS`), so it needs an approval first.
  *
  * In ENSv2, every name points at a resolver its owner controls. Here that's a
  * personal `PermissionedResolver` ("OwnedResolver") deployed through the ENS
@@ -39,6 +39,7 @@ import {
   encodeFunctionData,
   erc20Abi,
   getContractAddress,
+  isAddress,
   keccak256,
   parseAbi,
   stringToBytes,
@@ -49,20 +50,82 @@ import { getBlock, getCode, readContract, simulateBlocks } from 'viem/actions'
 import { normalize, packetToBytes } from 'viem/ens'
 
 import type { EnsContractsChain } from '../hooks/useEnsClient'
+import { type EnsChainId, mainnet, sepolia } from './chains'
 
 type EnsClient = Client<Transport, EnsContractsChain>
 
 export const SECONDS_PER_YEAR = 31_536_000
 
-export const PAYMENT_TOKENS = {
-  usdc: { symbol: 'USDC', decimals: 6 },
-  dai: { symbol: 'DAI', decimals: 18 },
-} as const
+export type PaymentToken = 'usdc' | 'dai' | 'mock'
 
-export type PaymentToken = keyof typeof PAYMENT_TOKENS
+export type PaymentTokenInfo = {
+  id: PaymentToken
+  /** Shown next to amounts */
+  symbol: string
+  /** Shown in the token picker */
+  label: string
+  decimals: number
+  /** An ENS deployment contract (address from ENSjs), or a fixed address */
+  contract: 'usdc' | 'dai' | Address
+  /** Testnet only: anyone can call `mint(to, amount)` */
+  mintable?: boolean
+  /** Testnet only: where to get some */
+  faucetUrl?: string
+}
 
-export function getPaymentTokenAddress(client: EnsClient, token: PaymentToken) {
-  return getChainContractAddress({ chain: client.chain, contract: token })
+/**
+ * The ERC-20s offered at checkout on each network. The registrar's price
+ * oracle decides which tokens it accepts (`isPaymentToken`); these are a
+ * subset of those.
+ */
+export const PAYMENT_TOKENS: Record<EnsChainId, readonly PaymentTokenInfo[]> = {
+  [mainnet.id]: [
+    {
+      id: 'usdc',
+      symbol: 'USDC',
+      label: 'USDC',
+      decimals: 6,
+      contract: 'usdc',
+    },
+    { id: 'dai', symbol: 'DAI', label: 'DAI', decimals: 18, contract: 'dai' },
+  ],
+  [sepolia.id]: [
+    {
+      id: 'usdc',
+      symbol: 'USDC',
+      label: 'USDC',
+      decimals: 6,
+      // Circle's Sepolia USDC, which the ENS registrar also accepts
+      contract: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      faucetUrl: 'https://faucet.circle.com',
+    },
+    {
+      id: 'mock',
+      symbol: 'mock USD',
+      label: 'Mock',
+      decimals: 6,
+      // ENS's own test token: a USDC-like ERC-20 anyone can mint
+      contract: 'usdc',
+      mintable: true,
+    },
+  ],
+}
+
+export function getPaymentTokens(chainId: EnsChainId) {
+  return PAYMENT_TOKENS[chainId]
+}
+
+/** The token's details on this network, or undefined if it isn't offered */
+export function getPaymentToken(chainId: EnsChainId, id: string) {
+  return PAYMENT_TOKENS[chainId].find((t) => t.id === id)
+}
+
+export function getPaymentTokenAddress(client: EnsClient, id: PaymentToken) {
+  const token = getPaymentToken(client.chain.id as EnsChainId, id)
+  if (!token) throw new Error(`${id} isn't a payment token on this network`)
+  return isAddress(token.contract)
+    ? token.contract
+    : getChainContractAddress({ chain: client.chain, contract: token.contract })
 }
 
 export function getRegistrarAddress(client: EnsClient) {
@@ -210,6 +273,9 @@ function encodeSetEthAddress(name: string, address: Address) {
 
 export type Call = { to: Address; data: Hex }
 
+/** What each transaction in a registration does, for showing progress */
+export type TxKind = 'resolver' | 'approve' | 'commit' | 'register' | 'record'
+
 export type RegistrationSetup = {
   /** The connected account, which pays, owns the name, and owns the resolver */
   account: Address
@@ -338,10 +404,21 @@ export async function getRegistrationCalls(
       ...(approveCall ? [approveCall] : []),
       commitCall,
     ],
+    /** What each `setup` call does, in the same order */
+    setupKinds: [
+      ...(deployResolverCall ? ['resolver' as const] : []),
+      ...(approveCall ? ['approve' as const] : []),
+      'commit' as const,
+    ] satisfies TxKind[],
     register: [
       toCall(registerWrite),
       { to: resolver.address, data: setEthAddress },
     ],
+    /**
+     * The approval, if the allowance is still short of the price. Needed again
+     * at register time when something used up the approval from setup.
+     */
+    approve: approveCall,
     /** The register call with its ABI, for `simulateContract` */
     registerWrite: {
       address: registerWrite.address,

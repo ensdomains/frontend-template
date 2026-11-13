@@ -7,8 +7,7 @@ import { useEnsClient } from '../hooks/useEnsClient'
 import { useWalletOnNetwork } from '../hooks/useWalletOnNetwork'
 import { sepolia } from '../lib/chains'
 import {
-  PAYMENT_TOKENS,
-  type PaymentToken,
+  type PaymentTokenInfo,
   getErrorMessage,
   getPaymentTokenAddress,
 } from '../lib/registration'
@@ -18,15 +17,41 @@ import { Spinner } from './ui'
 
 const mintAbi = parseAbi(['function mint(address to, uint256 amount)'])
 
-/** Sepolia's mock payment tokens can be minted by anyone, for testing. */
-export function TestnetFaucet({ token }: { token: PaymentToken }) {
+/**
+ * How to get the selected Sepolia payment token: a mint button for tokens
+ * anyone can mint (ENS's mock stablecoin), or a link to an external faucet
+ * (Circle's USDC).
+ */
+export function TestnetFaucet({ token }: { token: PaymentTokenInfo }) {
+  if (token.mintable) return <MintButton key={token.id} token={token} />
+  if (!token.faucetUrl) return null
+  return (
+    <a
+      href={token.faucetUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      {...styles.faucet()}
+    >
+      Get test {token.symbol} from the faucet ↗
+    </a>
+  )
+}
+
+function MintButton({ token }: { token: PaymentTokenInfo }) {
   const client = useEnsClient(sepolia.id)
   const { address, isOnNetwork } = useWalletOnNetwork()
   const [status, setStatus] = useState<string>()
   const [pending, setPending] = useState(false)
-  const { symbol, decimals } = PAYMENT_TOKENS[token]
 
-  if (!address || !isOnNetwork || client.chain.id !== sepolia.id) return null
+  const canMint = !!address && isOnNetwork && client.chain.id === sepolia.id
+  // Same footprint as the faucet link, so switching tokens doesn't shift
+  if (!canMint) {
+    return (
+      <span {...styles.faucet()} data-disabled="">
+        Connect a wallet on Sepolia to mint {token.symbol}
+      </span>
+    )
+  }
 
   async function mint() {
     if (!address) return
@@ -36,15 +61,15 @@ export function TestnetFaucet({ token }: { token: PaymentToken }) {
       const hash = await sendTransaction(config, {
         chainId: sepolia.id,
         account: address,
-        to: getPaymentTokenAddress(client, token),
+        to: getPaymentTokenAddress(client, token.id),
         data: encodeFunctionData({
           abi: mintAbi,
           functionName: 'mint',
-          args: [address, parseUnits('100', decimals)],
+          args: [address, parseUnits('100', token.decimals)],
         }),
       })
       await confirmTransaction(sepolia.id, hash)
-      setStatus(`Minted 100 test ${symbol}`)
+      setStatus(`Minted 100 ${token.symbol}`)
     } catch (err) {
       setStatus(getErrorMessage(err))
     } finally {
@@ -60,7 +85,7 @@ export function TestnetFaucet({ token }: { token: PaymentToken }) {
       {...styles.faucet()}
     >
       {pending && <Spinner size={12} />}
-      {status ?? `Testnet: get 100 test ${symbol}`}
+      {status ?? `Mint 100 ${token.symbol}`}
     </button>
   )
 }
@@ -77,7 +102,9 @@ namespace styles {
     color: 'var(--text-secondary)',
     fontWeight: 500,
     fontSize: '0.875rem',
+    textDecoration: 'none',
     cursor: 'pointer',
     ':hover': { color: 'var(--blue)' },
+    '&[data-disabled]': { color: 'var(--text-tertiary)', cursor: 'default' },
   })
 }

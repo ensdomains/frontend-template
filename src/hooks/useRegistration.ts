@@ -1,12 +1,6 @@
 import { randomSecret } from '@ensdomains/ensjs/utils'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  type Address,
-  type Hash,
-  type Hex,
-  encodeFunctionData,
-  erc20Abi,
-} from 'viem'
+import { type Address, type Hash, type Hex, erc20Abi } from 'viem'
 import {
   getCapabilities,
   readContract,
@@ -18,11 +12,10 @@ import {
 import type { EnsChainId } from '../lib/chains'
 import {
   type Call,
-  PAYMENT_TOKENS,
   type PaymentToken,
+  type TxKind,
+  getPaymentToken,
   getErrorMessage,
-  getPrice,
-  getRegistrarAddress,
   getRegistrationCalls,
   getRevertError,
   parseLabel,
@@ -32,6 +25,7 @@ import {
   BatchFailedError,
   confirmBatch,
   confirmTransaction,
+  isAtomicBatchSupported,
 } from '../lib/transactions'
 import { config } from '../lib/wagmi'
 import { useEnsClient } from './useEnsClient'
@@ -45,6 +39,15 @@ export type RegistrationParams = {
 }
 
 export type Phase = 'idle' | 'setup' | 'wait' | 'register' | 'done'
+
+/** The steps that send transactions */
+type Step = 'setup' | 'register'
+
+/** One transaction within a step, when they're sent one at a time */
+export type TxProgress = {
+  kind: TxKind
+  status: 'pending' | 'active' | 'done'
+}
 
 export type RegistrationState = {
   phase: Phase
@@ -62,6 +65,8 @@ export type RegistrationState = {
   persisted?: boolean
   error?: string
   hashes: { commit?: Hash; register?: Hash }
+  /** The transactions in each step, once known */
+  txs: { setup?: TxProgress[]; register?: TxProgress[] }
 }
 
 /**
@@ -146,7 +151,7 @@ export function findSavedRegistrations(
       if (
         Number(id) !== chainId ||
         owner !== account.toLowerCase() ||
-        !(token in PAYMENT_TOKENS) ||
+        !getPaymentToken(chainId, token) ||
         !Number.isInteger(params.years) ||
         params.years < 1 ||
         parseLabel(label)?.label !== label
@@ -165,14 +170,12 @@ export function findSavedRegistrations(
 }
 
 /**
- * Whether the wallet can run calls atomically (EIP-5792). Only `supported`
- * counts: `ready` means sending a batch would prompt an EIP-7702 account
- * upgrade, which a registration shouldn't trigger.
+ * Checked again right before sending, since the wallet may have changed since
+ * the page loaded. See `isAtomicBatchSupported`.
  */
 async function supportsAtomicBatch(chainId: EnsChainId) {
   try {
-    const capabilities = await getCapabilities(config, { chainId })
-    return capabilities.atomic?.status === 'supported'
+    return isAtomicBatchSupported(await getCapabilities(config, { chainId }))
   } catch {
     return false
   }
@@ -194,6 +197,7 @@ export function useRegistration(params: RegistrationParams) {
   const [state, setState] = useState<RegistrationState>({
     phase: 'idle',
     hashes: {},
+    txs: {},
   })
   const running = useRef(false)
   const mounted = useRef(true)
@@ -210,6 +214,36 @@ export function useRegistration(params: RegistrationParams) {
   const update = useCallback((next: Partial<RegistrationState>) => {
     if (mounted.current) setState((prev) => ({ ...prev, ...next }))
   }, [])
+
+  /** Lists the transactions a step is about to send */
+  const planTxs = useCallback(
+    (step: Step, kinds: TxKind[], done: TxKind[] = []) => {
+      const txs = kinds.map((kind) => ({
+        kind,
+        status: done.includes(kind) ? ('done' as const) : ('pending' as const),
+      }))
+      if (mounted.current) {
+        setState((prev) => ({ ...prev, txs: { ...prev.txs, [step]: txs } }))
+      }
+    },
+    []
+  )
+
+  const markTx = useCallback(
+    (step: Step, kind: TxKind, status: TxProgress['status']) => {
+      if (!mounted.current) return
+      setState((prev) => ({
+        ...prev,
+        txs: {
+          ...prev.txs,
+          [step]: prev.txs[step]?.map((tx) =>
+            tx.kind === kind ? { ...tx, status } : tx
+          ),
+        },
+      }))
+    },
+    []
+  )
 
   // Load progress saved before a reload, once per registration. Re-running
   // (e.g. React StrictMode) must not drop a draft that only lives in memory.
@@ -229,18 +263,23 @@ export function useRegistration(params: RegistrationParams) {
   )
 
   /** Sends one transaction and waits for it (not a replacement) to succeed */
+  /** Sends one call and waits for it, marking its progress in `state.txs` */
   const send = useCallback(
-    async (call: Call) => {
+    async (call: Call, step: Step, kind: TxKind) => {
       update({ txStatus: 'sign' })
+      markTx(step, kind, 'active')
       const hash = await sendTransaction(config, {
         chainId: params.chainId,
         account: params.account,
-        ...call,
+        to: call.to,
+        data: call.data,
       })
       update({ txStatus: 'confirm' })
-      return confirmTransaction(params.chainId, hash)
+      const confirmed = await confirmTransaction(params.chainId, hash)
+      markTx(step, kind, 'done')
+      return confirmed
     },
-    [params, update]
+    [markTx, params, update]
   )
 
   /**
@@ -282,30 +321,6 @@ export function useRegistration(params: RegistrationParams) {
   )
 
   /** Approves the registrar again if the price rose or approval was spent */
-  const ensureAllowance = useCallback(
-    async (paymentToken: Address) => {
-      const registrar = getRegistrarAddress(client)
-      const { total } = await getPrice(client, params)
-      const allowance = await readContract(config, {
-        chainId: params.chainId,
-        address: paymentToken,
-        abi: erc20Abi,
-        functionName: 'allowance',
-        args: [params.account, registrar],
-      })
-      if (allowance >= total) return
-      await send({
-        to: paymentToken,
-        data: encodeFunctionData({
-          abi: erc20Abi,
-          functionName: 'approve',
-          args: [registrar, total],
-        }),
-      })
-    },
-    [client, params, send]
-  )
-
   /** Polls until the registrar accepts the commitment (~60 seconds) */
   const waitForCommitment = useCallback(
     async (register: RegisterWrite) => {
@@ -385,6 +400,7 @@ export function useRegistration(params: RegistrationParams) {
           needsRecord: true,
           hashes: { register: draft.registerHash },
         })
+        planTxs('register', ['register', 'record'], ['register'])
         return
       }
 
@@ -413,7 +429,7 @@ export function useRegistration(params: RegistrationParams) {
           args: [params.account],
         })
         if (balance < calls.price) {
-          const { symbol } = PAYMENT_TOKENS[params.token]
+          const symbol = getPaymentToken(params.chainId, params.token)?.symbol
           throw new Error(`Not enough ${symbol} to register this name`)
         }
 
@@ -433,14 +449,17 @@ export function useRegistration(params: RegistrationParams) {
         // Resolver, approval, and commit. The commit is always last, so its
         // hash is the one that's saved.
         let commitHash: Hash | undefined
-        if (
-          calls.setup.length > 1 &&
-          (await supportsAtomicBatch(params.chainId))
-        ) {
+        const canBatch = await supportsAtomicBatch(params.chainId)
+        update({ batched: canBatch })
+        if (canBatch && calls.setup.length > 1) {
           commitHash = await sendBatch(calls.setup, 'setup')
         } else {
-          update({ batched: false })
-          for (const call of calls.setup) commitHash = await send(call)
+          // One at a time. Nothing to batch when the resolver and approval
+          // already exist.
+          planTxs('setup', calls.setupKinds)
+          for (const [i, call] of calls.setup.entries()) {
+            commitHash = await send(call, 'setup', calls.setupKinds[i])
+          }
         }
         saveDraft({ ...draftRef.current!, commitHash })
       }
@@ -456,6 +475,7 @@ export function useRegistration(params: RegistrationParams) {
     client,
     finishBatch,
     params,
+    planTxs,
     saveDraft,
     send,
     sendBatch,
@@ -498,21 +518,31 @@ export function useRegistration(params: RegistrationParams) {
       let registerHash = draft.registerHash
 
       if (!registerHash) {
-        await ensureAllowance(calls.paymentToken)
         if (await supportsAtomicBatch(params.chainId)) {
-          // Register and set the record in one confirmation
-          registerHash = await sendBatch(calls.register, 'register')
+          // Approve if still needed, register, and set the record, all in
+          // one confirmation
+          registerHash = await sendBatch(
+            [...(calls.approve ? [calls.approve] : []), ...calls.register],
+            'register'
+          )
         } else {
-          // Save progress between the two, so the record can be retried
           update({ batched: false })
-          registerHash = await send(registerCall)
+          planTxs('register', [
+            ...(calls.approve ? ['approve' as const] : []),
+            'register',
+            'record',
+          ])
+          if (calls.approve) await send(calls.approve, 'register', 'approve')
+          registerHash = await send(registerCall, 'register', 'register')
+          // Save progress between the two, so the record can be retried
           saveDraft({ ...draft, registerHash })
           update({ needsRecord: true })
-          await send(setAddressCall)
+          await send(setAddressCall, 'register', 'record')
         }
       } else {
         // Registered earlier, but setting the record didn't finish
-        await send(setAddressCall)
+        planTxs('register', ['register', 'record'], ['register'])
+        await send(setAddressCall, 'register', 'record')
       }
 
       saveDraft(undefined)
@@ -526,16 +556,7 @@ export function useRegistration(params: RegistrationParams) {
     } finally {
       running.current = false
     }
-  }, [
-    client,
-    ensureAllowance,
-    finishBatch,
-    params,
-    saveDraft,
-    send,
-    sendBatch,
-    update,
-  ])
+  }, [client, finishBatch, params, planTxs, saveDraft, send, sendBatch, update])
 
   /**
    * Leave the flow. Progress is forgotten only if nothing has been sent that
@@ -547,7 +568,7 @@ export function useRegistration(params: RegistrationParams) {
     if (!draft?.commitHash && !draft?.batch && !draft?.registerHash) {
       saveDraft(undefined)
     }
-    setState({ phase: 'idle', hashes: {} })
+    setState({ phase: 'idle', hashes: {}, txs: {} })
   }, [saveDraft])
 
   return { state, start, register, reset }

@@ -56,7 +56,11 @@ export function networkName(chainId: EnsChainId) {
   return chainId === sepolia.id ? 'Sepolia' : 'Mainnet'
 }
 
-export function explorerUrl(chainId: number) {
-  const chain = allChains.find((c) => c.id === chainId) ?? mainnet
-  return chain.blockExplorers.default.url
+/** A name's page on the ENS Explorer for this network */
+export function ensExplorerUrl(chainId: EnsChainId, name: string) {
+  const host =
+    chainId === sepolia.id
+      ? 'sepolia.explorer.ens.domains'
+      : 'explorer.ens.domains'
+  return `https://${host}/${encodeURIComponent(name)}`
 }
