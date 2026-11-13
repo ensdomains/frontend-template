@@ -5,6 +5,7 @@ import {
   getCapabilities,
   readContract,
   sendCalls,
+  getConnection,
   sendTransaction,
   simulateContract,
 } from 'wagmi/actions'
@@ -23,6 +24,7 @@ import {
 } from '../lib/registration'
 import {
   BatchFailedError,
+  TransactionFailedError,
   confirmBatch,
   confirmTransaction,
   isAtomicBatchSupported,
@@ -59,6 +61,8 @@ export type RegistrationState = {
   batched?: boolean
   /** Unix ms timestamp for when the commitment can be revealed */
   readyAt?: number
+  /** The commitment has matured, so the name can be registered */
+  ready?: boolean
   /** Registered, but the ETH address record still needs to be set */
   needsRecord?: boolean
   /** False when progress can't be saved, so a reload would lose it */
@@ -82,6 +86,30 @@ type Draft = {
   commitHash?: Hash
   /** The confirmed register transaction (the ETH record may still be unset) */
   registerHash?: Hash
+  /**
+   * A transaction that was sent but whose outcome isn't known yet. Saved the
+   * moment the wallet returns its hash, so a reload checks it instead of
+   * sending something else (e.g. a second register).
+   */
+  pending?: { hash: Hash; kind: TxKind }
+}
+
+const TX_KINDS: readonly TxKind[] = [
+  'resolver',
+  'approve',
+  'commit',
+  'register',
+  'record',
+]
+
+/** Whether anything was sent that the saved secret or hashes are needed for */
+function hasProgress(draft: Draft | undefined) {
+  return !!(
+    draft?.commitHash ||
+    draft?.batch ||
+    draft?.registerHash ||
+    draft?.pending
+  )
 }
 
 const DRAFT_PREFIX = 'ens-examples:registration:'
@@ -106,6 +134,10 @@ function loadDraft(p: RegistrationParams): Draft | undefined {
           : undefined,
       commitHash: HASH.test(raw.commitHash) ? raw.commitHash : undefined,
       registerHash: HASH.test(raw.registerHash) ? raw.registerHash : undefined,
+      pending:
+        HASH.test(raw.pending?.hash) && TX_KINDS.includes(raw.pending.kind)
+          ? { hash: raw.pending.hash, kind: raw.pending.kind }
+          : undefined,
     }
   } catch {
     return undefined
@@ -158,10 +190,7 @@ export function findSavedRegistrations(
       ) {
         continue
       }
-      const draft = loadDraft(params)
-      if (draft?.commitHash || draft?.batch || draft?.registerHash) {
-        found.push(params)
-      }
+      if (hasProgress(loadDraft(params))) found.push(params)
     }
   } catch {
     // Storage unavailable
@@ -187,6 +216,9 @@ type RegisterWrite = Awaited<
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** The flow was closed (or the network changed) while it was running */
+class FlowClosedError extends Error {}
+
 /**
  * Runs an ENSv2 registration for the connected account. `start` runs the
  * setup and the wait, `register` finishes it. A reload mid-way resumes from
@@ -201,8 +233,11 @@ export function useRegistration(params: RegistrationParams) {
   })
   const running = useRef(false)
   const mounted = useRef(true)
-  // The source of truth for progress. localStorage is only a backup.
-  const draftRef = useRef<Draft | undefined>(undefined)
+  // The source of truth for progress, starting from what was saved before a
+  // reload. localStorage is only a backup. Render this hook with a `key` per
+  // registration so a different one starts from its own draft.
+  const [savedDraft] = useState(() => loadDraft(params))
+  const draftRef = useRef<Draft | undefined>(savedDraft)
 
   useEffect(() => {
     mounted.current = true
@@ -245,14 +280,6 @@ export function useRegistration(params: RegistrationParams) {
     []
   )
 
-  // Load progress saved before a reload, once per registration. Re-running
-  // (e.g. React StrictMode) must not drop a draft that only lives in memory.
-  const loadedKey = useRef<string | undefined>(undefined)
-  if (loadedKey.current !== draftKey(params)) {
-    loadedKey.current = draftKey(params)
-    draftRef.current = loadDraft(params)
-  }
-
   const saveDraft = useCallback(
     (draft: Draft | undefined) => {
       draftRef.current = draft
@@ -262,10 +289,48 @@ export function useRegistration(params: RegistrationParams) {
     [params, update]
   )
 
-  /** Sends one transaction and waits for it (not a replacement) to succeed */
+  /**
+   * Called before every wallet request. Once the flow is closed (which also
+   * happens when the network toggle or account changes), nothing new is
+   * sent, even if an earlier step is still finishing in the background.
+   */
+  const assertActive = useCallback(() => {
+    if (!mounted.current) throw new FlowClosedError()
+    const { address } = getConnection(config)
+    if (address?.toLowerCase() !== params.account.toLowerCase()) {
+      throw new Error('The connected account changed. Go back and start again')
+    }
+  }, [params])
+
+  /**
+   * Waits for a sent transaction and records what it did. A definite failure
+   * forgets it; any other error (e.g. a timeout) keeps it, so it's checked
+   * again instead of being sent twice.
+   */
+  const settle = useCallback(
+    async (pending: NonNullable<Draft['pending']>) => {
+      let landed: Hash
+      try {
+        landed = await confirmTransaction(params.chainId, pending.hash)
+      } catch (err) {
+        if (err instanceof TransactionFailedError) {
+          saveDraft({ ...draftRef.current!, pending: undefined })
+        }
+        throw err
+      }
+      const next: Draft = { ...draftRef.current!, pending: undefined }
+      if (pending.kind === 'commit') next.commitHash = landed
+      if (pending.kind === 'register') next.registerHash = landed
+      saveDraft(next)
+      return landed
+    },
+    [params, saveDraft]
+  )
+
   /** Sends one call and waits for it, marking its progress in `state.txs` */
   const send = useCallback(
     async (call: Call, step: Step, kind: TxKind) => {
+      assertActive()
       update({ txStatus: 'sign' })
       markTx(step, kind, 'active')
       const hash = await sendTransaction(config, {
@@ -274,34 +339,28 @@ export function useRegistration(params: RegistrationParams) {
         to: call.to,
         data: call.data,
       })
+      saveDraft({ ...draftRef.current!, pending: { hash, kind } })
       update({ txStatus: 'confirm' })
-      const confirmed = await confirmTransaction(params.chainId, hash)
+      const landed = await settle({ hash, kind })
       markTx(step, kind, 'done')
-      return confirmed
+      return landed
     },
-    [markTx, params, update]
+    [assertActive, markTx, params, saveDraft, settle, update]
   )
 
   /**
-   * Sends calls as one atomic EIP-5792 batch and returns the hash of the
-   * transaction that ran them. The batch id is saved until its outcome is
-   * known, so a reload can pick it back up instead of sending again.
+   * Finishes a transaction sent before a reload or an error. Returns true if
+   * it was the last one (the address record), so the registration is done.
    */
-  const sendBatch = useCallback(
-    async (calls: Call[], step: 'setup' | 'register') => {
-      update({ batched: true, txStatus: 'sign' })
-      const { id } = await sendCalls(config, {
-        chainId: params.chainId,
-        account: params.account,
-        forceAtomic: true,
-        calls,
-      })
-      saveDraft({ ...draftRef.current!, batch: { id, step } })
-      update({ txStatus: 'confirm' })
-      return finishBatch(id)
-    },
-    [params, saveDraft, update]
-  )
+  const reconcilePending = useCallback(async () => {
+    const pending = draftRef.current?.pending
+    if (!pending) return false
+    const step = pending.kind === 'register' || pending.kind === 'record'
+    update({ phase: step ? 'register' : 'setup', txStatus: 'confirm' })
+    await settle(pending)
+    update({ txStatus: undefined })
+    return pending.kind === 'record'
+  }, [settle, update])
 
   /** Waits for a saved batch. Forgets it only once the outcome is known. */
   const finishBatch = useCallback(
@@ -320,7 +379,28 @@ export function useRegistration(params: RegistrationParams) {
     [saveDraft]
   )
 
-  /** Approves the registrar again if the price rose or approval was spent */
+  /**
+   * Sends calls as one atomic EIP-5792 batch and returns the hash of the
+   * transaction that ran them. The batch id is saved until its outcome is
+   * known, so a reload can pick it back up instead of sending again.
+   */
+  const sendBatch = useCallback(
+    async (calls: Call[], step: 'setup' | 'register') => {
+      assertActive()
+      update({ batched: true, txStatus: 'sign' })
+      const { id } = await sendCalls(config, {
+        chainId: params.chainId,
+        account: params.account,
+        forceAtomic: true,
+        calls,
+      })
+      saveDraft({ ...draftRef.current!, batch: { id, step } })
+      update({ txStatus: 'confirm' })
+      return finishBatch(id)
+    },
+    [assertActive, finishBatch, params, saveDraft, update]
+  )
+
   /** Polls until the registrar accepts the commitment (~60 seconds) */
   const waitForCommitment = useCallback(
     async (register: RegisterWrite) => {
@@ -334,7 +414,7 @@ export function useRegistration(params: RegistrationParams) {
             account: params.account,
           })
           // A simulated register succeeds, so the wait is over
-          update({ readyAt: Date.now() })
+          update({ readyAt: Date.now(), ready: true })
           return
         } catch (err) {
           const revert = getRevertError(err)
@@ -345,7 +425,7 @@ export function useRegistration(params: RegistrationParams) {
               bigint,
             ]
             const waitMs = Number(validFrom - blockTimestamp) * 1000 + 1500
-            update({ readyAt: Date.now() + waitMs })
+            update({ readyAt: Date.now() + waitMs, ready: false })
             await sleep(Math.max(waitMs, 3000))
             continue
           }
@@ -355,7 +435,7 @@ export function useRegistration(params: RegistrationParams) {
             revert?.name === 'ERC20InsufficientAllowance' ||
             revert?.name === 'SafeERC20FailedOperation'
           ) {
-            update({ readyAt: Date.now() })
+            update({ readyAt: Date.now(), ready: true })
             return
           }
           if (revert?.name === 'CommitmentTooOld') saveDraft(undefined)
@@ -373,8 +453,13 @@ export function useRegistration(params: RegistrationParams) {
     update({ error: undefined })
 
     try {
-      const draft = draftRef.current ?? { secret: randomSecret() }
-      saveDraft(draft)
+      if (!draftRef.current) saveDraft({ secret: randomSecret() })
+      if (await reconcilePending()) {
+        saveDraft(undefined)
+        update({ phase: 'done', txStatus: undefined })
+        return
+      }
+      const draft = draftRef.current!
       const calls = await getRegistrationCalls(client, {
         ...params,
         secret: draft.secret,
@@ -461,12 +546,14 @@ export function useRegistration(params: RegistrationParams) {
             commitHash = await send(call, 'setup', calls.setupKinds[i])
           }
         }
+        // Already saved when sent one at a time; batches are saved here
         saveDraft({ ...draftRef.current!, commitHash })
       }
 
       update({ hashes: { commit: draftRef.current?.commitHash } })
       await waitForCommitment(calls.registerWrite)
     } catch (err) {
+      if (err instanceof FlowClosedError) return
       update({ error: getErrorMessage(err), txStatus: undefined })
     } finally {
       running.current = false
@@ -476,6 +563,7 @@ export function useRegistration(params: RegistrationParams) {
     finishBatch,
     params,
     planTxs,
+    reconcilePending,
     saveDraft,
     send,
     sendBatch,
@@ -490,6 +578,11 @@ export function useRegistration(params: RegistrationParams) {
     update({ phase: 'register', error: undefined, needsRecord: false })
 
     try {
+      if (await reconcilePending()) {
+        saveDraft(undefined)
+        update({ phase: 'done', txStatus: undefined })
+        return
+      }
       const draft = draftRef.current
       if (draft?.batch) {
         // An earlier batch's outcome is unknown: check it, never resend
@@ -533,9 +626,8 @@ export function useRegistration(params: RegistrationParams) {
             'record',
           ])
           if (calls.approve) await send(calls.approve, 'register', 'approve')
+          // Saved as soon as it lands, so the record can be retried
           registerHash = await send(registerCall, 'register', 'register')
-          // Save progress between the two, so the record can be retried
-          saveDraft({ ...draft, registerHash })
           update({ needsRecord: true })
           await send(setAddressCall, 'register', 'record')
         }
@@ -552,22 +644,30 @@ export function useRegistration(params: RegistrationParams) {
         hashes: { commit: draft.commitHash, register: registerHash },
       })
     } catch (err) {
+      if (err instanceof FlowClosedError) return
       update({ error: getErrorMessage(err), txStatus: undefined })
     } finally {
       running.current = false
     }
-  }, [client, finishBatch, params, planTxs, saveDraft, send, sendBatch, update])
+  }, [
+    client,
+    finishBatch,
+    params,
+    planTxs,
+    reconcilePending,
+    saveDraft,
+    send,
+    sendBatch,
+    update,
+  ])
 
   /**
    * Leave the flow. Progress is forgotten only if nothing has been sent that
-   * the saved secret is needed for (a commit, or a batch that may contain one).
+   * the saved secret or hashes are needed for.
    */
   const reset = useCallback(() => {
     if (running.current) return
-    const draft = draftRef.current
-    if (!draft?.commitHash && !draft?.batch && !draft?.registerHash) {
-      saveDraft(undefined)
-    }
+    if (!hasProgress(draftRef.current)) saveDraft(undefined)
     setState({ phase: 'idle', hashes: {}, txs: {} })
   }, [saveDraft])
 

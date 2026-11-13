@@ -4,6 +4,13 @@ import { waitForCallsStatus, waitForTransactionReceipt } from 'wagmi/actions'
 import { config } from './wagmi'
 
 /**
+ * The transaction definitely didn't do what was sent: it reverted, or was
+ * cancelled or replaced. Any other error from `confirmTransaction` (e.g. a
+ * timeout or RPC failure) means the outcome isn't known yet.
+ */
+export class TransactionFailedError extends Error {}
+
+/**
  * Waits for a transaction and returns the hash that actually landed.
  *
  * Wallets let users speed up (reprice), cancel, or replace a pending
@@ -22,9 +29,13 @@ export async function confirmTransaction(chainId: number, hash: Hash) {
   })
 
   if (replacedReason && replacedReason !== 'repriced') {
-    throw new Error('The transaction was cancelled or replaced in your wallet')
+    throw new TransactionFailedError(
+      'The transaction was cancelled or replaced in your wallet'
+    )
   }
-  if (receipt.status !== 'success') throw new Error('The transaction failed')
+  if (receipt.status !== 'success') {
+    throw new TransactionFailedError('The transaction failed')
+  }
   return receipt.transactionHash
 }
 

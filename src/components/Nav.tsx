@@ -8,8 +8,8 @@ import { shortenAddress } from '../lib/format'
 import { useNetwork } from '../lib/network'
 import { Link } from '../lib/router'
 import { Avatar } from './Avatar'
-import { WalletModal } from './WalletModal'
 import { Button, Spinner } from './ui'
+import { WalletModal } from './WalletModal'
 
 export function Nav() {
   return (
