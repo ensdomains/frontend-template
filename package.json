@@ -1,14 +1,16 @@
 {
   "name": "frontend-template",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "format": "prettier --write ."
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "check": "oxfmt --check && oxlint && tsc -b"
   },
   "dependencies": {
     "@ensdomains/ensjs": "^5.2.12",
@@ -25,13 +27,14 @@
     "zyzz": "^0.0.44"
   },
   "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
-    "prettier": "^3.10.1",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
-  }
+  },
+  "packageManager": "bun@1.4.4"
 }

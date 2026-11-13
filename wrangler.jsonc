@@ -1,0 +1,12 @@
+// Deploys the built site to Cloudflare Workers as static assets:
+//   bun run build && bunx wrangler deploy
+// Headers come from public/_headers (copied into dist/).
+{
+  "name": "ens-frontend-examples",
+  "compatibility_date": "2026-11-13",
+  "assets": {
+    "directory": "./dist",
+    // Serve index.html for client-side routes like /register
+    "not_found_handling": "single-page-application",
+  },
+}

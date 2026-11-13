@@ -33,6 +33,18 @@ src/
 - **Wallets.** wagmi on its own: browser wallets via EIP-6963, plus WalletConnect with a QR code when a project ID is set. No RainbowKit or similar.
 - **Styling.** [zyzz](https://zyzz.style) with the ENS brand colors and type in [`globals.ts`](src/globals.ts), shared with [ENS Fairy](https://github.com/gskril/ens-fairy).
 
+### Rules the examples follow
+
+If you copy code from here (or extend this repo), keep these:
+
+- **Reads follow the network toggle.** Writes pass `chainId` and `account` explicitly, so a transaction can't go to a different chain than the one on screen.
+- **ENS contract addresses come from ENSjs**, never hardcoded.
+- **Normalize names** (ENSIP-15, `normalize` from `viem/ens`) before resolving or registering. Only show a primary name if it's forward-verified and already normalized.
+- **ENS records are untrusted input.** Render them as text, and only link to `https:` URLs.
+- **Approve exact amounts**, never unlimited.
+- **Never reveal a name before its commitment matures.** Nothing sent before `register` contains the name in plaintext.
+- **Treat cancelled or replaced transactions as failures** ([`confirmTransaction`](src/lib/transactions.ts)), and save a transaction's hash as soon as it's sent, so a reload checks it instead of sending again.
+
 ## Registering on ENSv2
 
 ENSv2 keeps the commit/reveal flow from v1, with a few differences that are easy to miss:
@@ -48,19 +60,24 @@ On Sepolia, you can pay with Circle's test USDC (from [faucet.circle.com](https:
 
 ## Development
 
+Uses [Bun](https://bun.sh).
+
 ```bash
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
 
-| Script              |                                |
-| ------------------- | ------------------------------ |
-| `npm run dev`       | Start the dev server           |
-| `npm run build`     | Typecheck and build to `dist/` |
-| `npm run typecheck` | Typecheck only                 |
-| `npm run format`    | Format with Prettier           |
+| Script           |                                                                |
+| ---------------- | -------------------------------------------------------------- |
+| `bun run dev`    | Start the dev server                                           |
+| `bun run build`  | Typecheck and build to `dist/`                                 |
+| `bun run check`  | Formatting, lint, and types (run before pushing)               |
+| `bun run lint`   | Lint with [oxlint](https://oxc.rs/docs/guide/usage/linter)     |
+| `bun run format` | Format with [oxfmt](https://oxc.rs/docs/guide/usage/formatter) |
+
+There are no unit tests. To check onchain logic, simulate it against Sepolia with `simulateBlocks` from `viem/actions`: ENS's Sepolia mock stablecoins (`usdc` and `dai` in ENSjs) have a public `mint`, so a simulation can fund itself.
 
 ### Configuration
 
@@ -73,4 +90,9 @@ These are bundled into the client, so only use values that are safe to make publ
 
 ### Deployment
 
-It's a static site. [`vercel.json`](vercel.json) serves `index.html` for every path and sets security headers, including a Content Security Policy. `connect-src` and `img-src` allow any https origin because ENS resolution can call arbitrary CCIP Read gateways and avatars can be hosted anywhere.
+It's a static site (`bun run build` outputs `dist/`), ready for either:
+
+- **Vercel:** import the repo. [`vercel.json`](vercel.json) serves `index.html` for every path and sets the response headers.
+- **Cloudflare Workers:** `bun run build && bunx wrangler deploy`, or connect the repo in the Cloudflare dashboard. [`wrangler.jsonc`](wrangler.jsonc) serves `dist/` as static assets with single-page-app routing, and [`public/_headers`](public/_headers) sets the response headers.
+
+The Content Security Policy is a `<meta>` tag added to `index.html` at build time ([`vite.config.ts`](vite.config.ts)), so it's the same on any host. `connect-src` and `img-src` allow any https origin because ENS resolution can call arbitrary CCIP Read gateways and avatars can be hosted anywhere. The few protections a `<meta>` tag can't set (`frame-ancestors`, `nosniff`, `Permissions-Policy`) are response headers in the host configs above.
