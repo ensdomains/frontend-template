@@ -1,11 +1,9 @@
 {
-  "semi": false,
-  "tabWidth": 2,
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 80,
-  "useTabs": false,
+  "semi": false,
   "singleQuote": true,
   "trailingComma": "es5",
-  "plugins": ["@trivago/prettier-plugin-sort-imports"],
-  "importOrder": ["^[./]"],
-  "importOrderSeparation": true
+  "sortImports": true,
+  "ignorePatterns": ["dist"]
 }

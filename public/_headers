@@ -1,0 +1,9 @@
+# Response headers for Cloudflare (Workers static assets and Pages). Vercel
+# uses vercel.json instead. The Content Security Policy is a <meta> tag added
+# at build time (see vite.config.ts); these are the ones that must be headers.
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
