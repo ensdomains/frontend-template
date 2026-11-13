@@ -101,5 +101,8 @@ namespace styles {
     gap: '0.5rem',
   })
 
-  export const empty = style({ color: 'var(--text-tertiary)' })
+  export const empty = style({
+    color: 'var(--text-tertiary)',
+    fontFamily: 'var(--font)',
+  })
 }

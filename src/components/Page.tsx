@@ -68,11 +68,10 @@ namespace styles {
   // Brand headline: 96% line height, -3% letter spacing
   export const title = style({
     margin: 0,
-    fontSize: '2.25rem',
+    fontSize: '2rem',
     fontWeight: 500,
     letterSpacing: '-0.03em',
-    lineHeight: 0.96,
-    '@media (min-width: 640px)': { fontSize: '3rem' },
+    lineHeight: 1.1,
   })
 
   export const description = style({

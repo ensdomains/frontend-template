@@ -44,11 +44,6 @@ global({
   body: {
     minHeight: '100svh',
     margin: 0,
-    // The brand's tiled "snippet" background, kept faint
-    backgroundImage:
-      'radial-gradient(circle, rgba(0, 128, 188, 0.16) 1px, transparent 1.5px)',
-    backgroundSize: '24px 24px',
-    backgroundPosition: 'center top',
   },
   a: { color: 'inherit', textDecoration: 'none' },
   'button, input, select': { font: 'inherit', color: 'inherit' },

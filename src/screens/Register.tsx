@@ -1,6 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useState } from 'react'
-import type { Hash } from 'viem'
 import { sendTransaction } from 'wagmi/actions'
 import { cx, style, variants } from 'zyzz'
 
@@ -9,22 +8,27 @@ import { Page } from '../components/Page'
 import { TestnetFaucet } from '../components/TestnetFaucet'
 import { WalletModal } from '../components/WalletModal'
 import { Button, Card, Input, Notice, Row, Spinner } from '../components/ui'
+import { useAtomicBatching } from '../hooks/useAtomicBatching'
 import { useEnsClient } from '../hooks/useEnsClient'
 import { useNameAvailability } from '../hooks/useNameAvailability'
 import {
   type Phase,
   type RegistrationParams,
   type RegistrationState,
+  type TxProgress,
   findSavedRegistrations,
   useRegistration,
 } from '../hooks/useRegistration'
 import { useWalletOnNetwork } from '../hooks/useWalletOnNetwork'
-import { explorerUrl, sepolia } from '../lib/chains'
+import { ensExplorerUrl, sepolia } from '../lib/chains'
 import { formatAmount } from '../lib/format'
 import { useNetwork } from '../lib/network'
 import {
-  PAYMENT_TOKENS,
+  getPaymentToken,
+  getPaymentTokens,
   type PaymentToken,
+  type PaymentTokenInfo,
+  type TxKind,
   getErrorMessage,
   getSetPrimaryNameCall,
   parseLabel,
@@ -45,7 +49,7 @@ export function RegisterScreen() {
   return (
     <Page
       title="Register a name"
-      description="Register a .eth name on ENSv2. Payment is in USDC or DAI, and the name points at a resolver you own, so it resolves to your address as soon as it's registered."
+      description="Register a .eth name on ENSv2. Payment is in stablecoins, and the name points at a resolver you own, so it resolves to your address as soon as it's registered."
       source="src/lib/registration.ts"
     >
       {params ? (
@@ -67,7 +71,14 @@ function RegistrationForm({
   const [walletModalOpen, setWalletModalOpen] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const [yearsInput, setYearsInput] = useState('1')
-  const [token, setToken] = useState<PaymentToken>('usdc')
+  const tokens = getPaymentTokens(chainId)
+  const [tokenChoice, setToken] = useState<PaymentToken>('usdc')
+  // Ask the wallet about batching now, so the answer is cached when the
+  // registration starts and its step titles don't change after they render
+  useAtomicBatching(chainId)
+  // Each network offers different tokens, so fall back to its first one
+  const tokenInfo = tokens.find((t) => t.id === tokenChoice) ?? tokens[0]
+  const token = tokenInfo.id
   const years = Number(yearsInput)
   const validYears = Number.isInteger(years) && years >= 1 && years <= 100
 
@@ -87,6 +98,7 @@ function RegistrationForm({
     !!name.label &&
     name.isAvailable === true &&
     !!name.price &&
+    !name.isPriceStale &&
     validYears
 
   // Registrations committed in an earlier visit, which can be picked up again
@@ -151,38 +163,31 @@ function RegistrationForm({
               aria-label="Payment token"
               {...styles.tokens()}
             >
-              {(Object.keys(PAYMENT_TOKENS) as PaymentToken[]).map((t) => (
+              {tokens.map((t) => (
                 <button
-                  key={t}
+                  key={t.id}
                   type="button"
                   role="radio"
-                  aria-checked={t === token}
-                  onClick={() => setToken(t)}
-                  {...cx(styles.token(), t === token && styles.tokenActive())}
+                  aria-checked={t.id === token}
+                  onClick={() => setToken(t.id)}
+                  {...cx(
+                    styles.token(),
+                    t.id === token && styles.tokenActive()
+                  )}
                 >
-                  {PAYMENT_TOKENS[t].symbol}
+                  {t.label}
                 </button>
               ))}
             </div>
           </div>
         </div>
 
-        {name.price && (
-          <div>
-            {name.price.premium > 0n && (
-              <Row label="Premium">
-                {formatAmount(
-                  name.price.premium,
-                  PAYMENT_TOKENS[token].decimals
-                )}{' '}
-                {PAYMENT_TOKENS[token].symbol}
-              </Row>
-            )}
-            <Row label="Total">
-              {formatAmount(name.price.total, PAYMENT_TOKENS[token].decimals)}{' '}
-              {PAYMENT_TOKENS[token].symbol}
-            </Row>
-          </div>
+        {name.price && validYears && (
+          <PriceRows
+            price={name.price}
+            token={getPaymentToken(chainId, name.price.token) ?? tokenInfo}
+            isStale={name.isPriceStale}
+          />
         )}
 
         {!wallet.isConnected ? (
@@ -214,12 +219,39 @@ function RegistrationForm({
         )}
       </Card>
 
-      {chainId === sepolia.id && <TestnetFaucet token={token} />}
+      {chainId === sepolia.id && <TestnetFaucet token={tokenInfo} />}
       <WalletModal
         open={walletModalOpen}
         onClose={() => setWalletModalOpen(false)}
       />
     </>
+  )
+}
+
+/**
+ * The price, formatted with the token it was quoted in. While a new token or
+ * duration is loading, the last price stays (dimmed) so the layout holds still.
+ */
+function PriceRows({
+  price,
+  token,
+  isStale,
+}: {
+  price: { base: bigint; premium: bigint; total: bigint }
+  token: PaymentTokenInfo
+  isStale: boolean
+}) {
+  return (
+    <div aria-busy={isStale} {...styles.price({ stale: isStale })}>
+      {price.premium > 0n && (
+        <Row label="Premium">
+          {formatAmount(price.premium, token.decimals)} {token.symbol}
+        </Row>
+      )}
+      <Row label="Total">
+        {formatAmount(price.total, token.decimals)} {token.symbol}
+      </Row>
+    </div>
   )
 }
 
@@ -231,6 +263,15 @@ function RegistrationFlow({
   onExit: () => void
 }) {
   const { state, start, register, reset } = useRegistration(params)
+  // What the wallet reports up front; `state.batched` is what actually happened
+  const canBatch = useAtomicBatching(params.chainId)
+  const batched = state.batched ?? canBatch
+  const symbol = getPaymentToken(params.chainId, params.token)?.symbol ?? ''
+  // Known once the step starts; until then, the usual two
+  const registerTxs: TxProgress[] = state.txs.register ?? [
+    { kind: 'register', status: 'pending' },
+    { kind: 'record', status: 'pending' },
+  ]
   const name = `${params.label}.eth`
   const busy = !!state.txStatus || !!state.checking
   const ready =
@@ -243,7 +284,7 @@ function RegistrationFlow({
   }, [start])
 
   if (state.phase === 'done') {
-    return <Registered params={params} registerHash={state.hashes.register} />
+    return <Registered params={params} />
   }
 
   return (
@@ -253,11 +294,17 @@ function RegistrationFlow({
           state={state}
           step="setup"
           title={
-            state.batched
+            // Unknown after resuming a commit made before a reload
+            !state.txs.setup &&
+            !batched &&
+            state.phase !== 'setup' &&
+            state.phase !== 'idle'
               ? 'Set up and commit'
-              : 'Set up and commit (up to 3 transactions)'
+              : `Set up and commit (${txCount(batched, state.txs.setup?.length, 'up to 3')})`
           }
           description="Deploys your resolver if you don't have one yet, approves the exact price, and commits to a hash of the registration, so the name stays private until it's registered."
+          txs={batched ? undefined : state.txs.setup}
+          symbol={symbol}
         />
         <Step
           state={state}
@@ -274,11 +321,19 @@ function RegistrationFlow({
         <Step
           state={state}
           step="register"
-          title="Register"
+          title={`Register (${txCount(batched, registerTxs.length)})`}
           description="Reveals the commitment, pays for the name, and points it at your address."
+          txs={batched ? undefined : registerTxs}
+          symbol={symbol}
         />
       </ol>
 
+      {batched && (
+        <Notice>
+          Your wallet supports batched transactions (EIP-5792), so each step
+          needs just one confirmation.
+        </Notice>
+      )}
       {state.persisted === false && (
         <Notice>
           Your browser isn't saving progress. Keep this page open until the name
@@ -331,18 +386,41 @@ function RegistrationFlow({
 
 const STEP_ORDER: Phase[] = ['idle', 'setup', 'wait', 'register', 'done']
 
+function txCount(batched: boolean, count?: number, fallback?: string) {
+  if (batched) return '1 transaction'
+  if (count === undefined) return `${fallback} transactions`
+  return count === 1 ? '1 transaction' : `${count} transactions`
+}
+
+/** What each transaction does, shown when they're sent one at a time */
+const TX_LABELS: Record<TxKind, (symbol: string) => string> = {
+  resolver: () => 'Deploy your resolver (first name only)',
+  approve: (symbol) => `Approve the exact price in ${symbol}`,
+  commit: () => 'Commit to the registration',
+  register: () => 'Register and pay',
+  record: () => 'Point the name at your address',
+}
+
 function Step({
   state,
   step,
   title,
   description,
+  txs,
+  symbol = '',
 }: {
   state: RegistrationState
   step: Exclude<Phase, 'idle' | 'done'>
   title: string
   description: ReactNode
+  txs?: TxProgress[]
+  symbol?: string
 }) {
-  const current = STEP_ORDER.indexOf(state.phase)
+  // Once the wait is over, the register step is up next (waiting on a click)
+  const isReady =
+    state.phase === 'wait' && !!state.readyAt && state.readyAt <= Date.now()
+  const phase = isReady ? 'register' : state.phase
+  const current = STEP_ORDER.indexOf(phase)
   const index = STEP_ORDER.indexOf(step)
   const status =
     current > index
@@ -352,21 +430,46 @@ function Step({
           ? 'error'
           : 'active'
         : 'pending'
+  // Spin only while something is happening, not while waiting for the user
+  const isWorking =
+    status === 'active' &&
+    (step !== 'register' || !!state.txStatus || !!state.checking)
 
   return (
     <li {...styles.step()}>
       <span {...styles.stepIcon({ status })} aria-hidden>
-        {status === 'done' ? (
-          '✓'
-        ) : status === 'active' ? (
-          <Spinner size={12} />
-        ) : (
-          index
-        )}
+        {status === 'done' ? '✓' : isWorking ? <Spinner size={12} /> : index}
       </span>
       <span {...styles.stepText()}>
         <span {...styles.stepTitle()}>{title}</span>
         <span {...styles.stepDescription()}>{description}</span>
+        {txs && txs.length > 0 && (
+          <ol {...styles.txs()}>
+            {txs.map((tx, i) => {
+              // A whole step that's done has nothing left in flight
+              const txStatus = status === 'done' ? 'done' : tx.status
+              return (
+                <li key={tx.kind} {...styles.tx({ status: txStatus })}>
+                  <span {...styles.txIcon()} aria-hidden>
+                    {txStatus === 'done' ? (
+                      '✓'
+                    ) : txStatus === 'active' && status !== 'error' ? (
+                      <Spinner size={10} />
+                    ) : (
+                      `${i + 1}.`
+                    )}
+                  </span>
+                  <span>
+                    {TX_LABELS[tx.kind](symbol)}
+                    {txStatus === 'active' && state.txStatus === 'sign' && (
+                      <span {...styles.txHint()}> · confirm in wallet</span>
+                    )}
+                  </span>
+                </li>
+              )
+            })}
+          </ol>
+        )}
       </span>
     </li>
   )
@@ -383,13 +486,7 @@ function Countdown({ until }: { until: number }) {
 }
 
 /** The registered name, and the optional last step: making it primary */
-function Registered({
-  params,
-  registerHash,
-}: {
-  params: RegistrationParams
-  registerHash?: Hash
-}) {
+function Registered({ params }: { params: RegistrationParams }) {
   const name = `${params.label}.eth`
   const client = useEnsClient(params.chainId)
   const queryClient = useQueryClient()
@@ -424,18 +521,16 @@ function Registered({
         <Row label="Resolves to">
           <Identity address={params.account} name={name} />
         </Row>
-        {registerHash && (
-          <Row label="Transaction">
-            <a
-              href={`${explorerUrl(params.chainId)}/tx/${registerHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              {...styles.link()}
-            >
-              View on explorer
-            </a>
-          </Row>
-        )}
+        <Row label="Explorer">
+          <a
+            href={ensExplorerUrl(params.chainId, name)}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...styles.link()}
+          >
+            View on explorer
+          </a>
+        </Row>
       </div>
 
       {primary.status === 'done' ? (
@@ -578,6 +673,46 @@ namespace styles {
     color: 'var(--text-secondary)',
     fontSize: '0.9375rem',
     lineHeight: 1.35,
+  })
+
+  export const price = variants({
+    base: { transitionProperty: 'opacity', transitionDuration: '150ms' },
+    variants: { stale: { true: { opacity: 0.5 }, false: {} } },
+  })
+
+  export const txs = style({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+    margin: '0.375rem 0 0',
+    padding: 0,
+    listStyle: 'none',
+    fontSize: '0.9375rem',
+  })
+
+  export const tx = variants({
+    base: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
+    variants: {
+      status: {
+        pending: { color: 'var(--text-tertiary)' },
+        active: { color: 'var(--text)', fontWeight: 500 },
+        done: { color: 'var(--text-secondary)' },
+      },
+    },
+  })
+
+  export const txIcon = style({
+    display: 'inline-flex',
+    justifyContent: 'center',
+    width: '1rem',
+    flexShrink: 0,
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.8125rem',
+  })
+
+  export const txHint = style({
+    color: 'var(--blue)',
+    fontWeight: 400,
   })
 
   export const link = style({

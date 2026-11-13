@@ -1,20 +1,3 @@
-/** The site mark: a bracketed "ens" on an ENS Blue tile (public/favicon.svg) */
-export function LogoMark({ size = 36 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden>
-      <rect width="64" height="64" rx="15" fill="#0080BC" />
-      <path
-        d="M22 18h-6v28h6M42 18h6v28h-6"
-        stroke="#CEE1E8"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="32" cy="32" r="6" fill="#F6F6F6" />
-    </svg>
-  )
-}
-
 export function GithubIcon({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>

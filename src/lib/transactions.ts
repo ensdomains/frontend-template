@@ -49,3 +49,15 @@ export async function confirmBatch(id: string) {
   }
   return last.transactionHash
 }
+
+/**
+ * Whether a wallet's EIP-5792 capabilities for one chain allow an atomic batch
+ * right now. Only `supported` counts: `ready` means the wallet would first ask
+ * to upgrade the account (EIP-7702), which an app shouldn't trigger as a side
+ * effect. Those wallets get one transaction per call instead.
+ */
+export function isAtomicBatchSupported(capabilities: {
+  atomic?: { status?: string }
+}) {
+  return capabilities.atomic?.status === 'supported'
+}

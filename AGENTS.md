@@ -28,4 +28,4 @@ npm run build   # typecheck + production build
 npm run format
 ```
 
-There are no unit tests. To check onchain logic, simulate against Sepolia with `simulateBlocks` from `viem/actions` (Sepolia's mock USDC and DAI have a public `mint`).
+There are no unit tests. To check onchain logic, simulate against Sepolia with `simulateBlocks` from `viem/actions` (ENS's Sepolia mock stablecoins, `usdc` and `dai` in ENSjs, have a public `mint`).

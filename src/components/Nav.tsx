@@ -9,15 +9,13 @@ import { useNetwork } from '../lib/network'
 import { Link } from '../lib/router'
 import { Avatar } from './Avatar'
 import { WalletModal } from './WalletModal'
-import { LogoMark } from './icons'
-import { Button } from './ui'
+import { Button, Spinner } from './ui'
 
 export function Nav() {
   return (
     <nav {...styles.nav()}>
-      <Link href="/" aria-label="Home" {...styles.logo()}>
-        <LogoMark size={36} />
-        <span {...styles.wordmark()}>ENS Examples</span>
+      <Link href="/" {...styles.logo()}>
+        ENS Examples
       </Link>
       <div {...styles.actions()}>
         <NetworkToggle />
@@ -56,7 +54,7 @@ function ConnectButton() {
   const { address, isConnected } = useConnection()
   const { mutate: disconnect } = useDisconnect()
   const { chainId } = useNetwork()
-  const { data: name } = usePrimaryName(address)
+  const { data: name, isLoading: isNameLoading } = usePrimaryName(address)
   const [modalOpen, setModalOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -92,7 +90,14 @@ function ConnectButton() {
         {...styles.profile()}
       >
         <Avatar name={name} chainId={chainId} size={32} />
-        <span {...styles.profileName()}>{name ?? shortenAddress(address)}</span>
+        <span {...styles.profileName()}>
+          {/* Don't flash the address while the name loads (e.g. on a network switch) */}
+          {isNameLoading ? (
+            <Spinner size={12} />
+          ) : (
+            (name ?? shortenAddress(address))
+          )}
+        </span>
       </button>
 
       {menuOpen && (
@@ -137,16 +142,12 @@ namespace styles {
   })
 
   export const logo = style({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-  })
-
-  export const wordmark = style({
+    flexShrink: 0,
     color: 'var(--text)',
-    fontSize: '1.375rem',
+    fontSize: '1.125rem',
     fontWeight: 500,
-    letterSpacing: '-0.03em',
+    letterSpacing: '-0.02em',
+    // The page heading says the same thing; leave room for the controls
     '@media (max-width: 639px)': { display: 'none' },
   })
 
@@ -155,6 +156,13 @@ namespace styles {
     alignItems: 'center',
     gap: '0.5rem',
     minWidth: 0,
+    marginLeft: 'auto',
+    // Without the title: toggle on the left, wallet on the right
+    '@media (max-width: 639px)': {
+      flex: 1,
+      justifyContent: 'space-between',
+      marginLeft: 0,
+    },
   })
 
   export const toggle = style({

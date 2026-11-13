@@ -1,26 +1,15 @@
 import { style } from 'zyzz'
 
 import { examples } from '../examples'
-import { useNetwork } from '../lib/network'
 import { Link } from '../lib/router'
 
 export function HomeScreen() {
-  const { name } = useNetwork()
-
   return (
     <main {...styles.main()}>
       <header {...styles.header()}>
-        <h1 {...styles.title()}>
-          ENS{' '}
-          <span {...styles.titleMono()}>
-            <span {...styles.bracket()}>[</span>examples
-            <span {...styles.bracket()}>]</span>
-          </span>
-        </h1>
+        <h1 {...styles.title()}>ENS examples</h1>
         <p {...styles.subtitle()}>
-          Reference implementations of ENS features for frontend apps, built
-          with wagmi, viem, and ENSjs. Reading from {name}; switch networks in
-          the top right.
+          Reference implementations of ENS features for frontend apps.
         </p>
       </header>
 
@@ -54,27 +43,12 @@ namespace styles {
     textAlign: 'center',
   })
 
-  // Brand headline: 96% line height, -3% letter spacing
   export const title = style({
     margin: 0,
-    fontSize: '2.5rem',
+    fontSize: '2rem',
     fontWeight: 500,
     letterSpacing: '-0.03em',
-    lineHeight: 0.96,
-    '@media (min-width: 640px)': { fontSize: '4rem' },
-  })
-
-  // The brand's bracketed, semi-mono emphasis
-  export const titleMono = style({
-    fontFamily: 'var(--font-mono)',
-    letterSpacing: '-0.06em',
-    whiteSpace: 'nowrap',
-  })
-
-  export const bracket = style({
-    color: 'var(--blue-light)',
-    fontFamily: 'var(--font)',
-    fontWeight: 400,
+    lineHeight: 1.1,
   })
 
   export const subtitle = style({
@@ -100,12 +74,9 @@ namespace styles {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
     backgroundColor: 'var(--surface)',
-    transitionProperty: 'transform, border-color',
+    transitionProperty: 'border-color',
     transitionDuration: '150ms',
-    ':hover': {
-      transform: 'translateY(-2px)',
-      borderColor: 'var(--border-strong)',
-    },
+    ':hover': { borderColor: 'var(--border-strong)' },
     ':focus-visible': {
       outline: '2px solid var(--blue)',
       outlineOffset: '2px',
